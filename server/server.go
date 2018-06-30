@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"path"
 	"strings"
@@ -42,6 +43,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Run() error {
+	log.Printf("listening on: %s", s.cfg.BindAddr)
 	return http.ListenAndServe(s.cfg.BindAddr, s)
 }
 
