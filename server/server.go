@@ -1,35 +1,29 @@
 package server
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/kyleterry/jot/config"
+	"github.com/kyleterry/jot/jot"
 )
 
 // Server listens to a port on an address as a HTTP server
 // and uses gorilla/mux to route requests to HTTP handlers.
 type Server struct {
-	seed           []byte
-	masterPassword string
-	dataDir        string
-	bindAddr       string
+	store *jot.JotStore
+	cfg   *config.Config
 }
 
 // New returns a new instance of a jot Server with
 // the data from the seedFile loaded or an error.
-func New(cfg config.Config) (*Server, error) {
-	seed, err := ioutil.ReadFile(cfg.SeedFile)
-	if err != nil {
-		return nil, err
-	}
-
+func New(cfg *config.Config, store *jot.JotStore) (*Server, error) {
 	return &Server{
-		seed:           seed,
-		masterPassword: cfg.MasterPassword,
-		dataDir:        cfg.DataDir,
+		store: store,
+		cfg:   cfg,
 	}, nil
 }
 
@@ -39,29 +33,128 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	head, r.URL.Path = shiftPath(r.URL.Path)
 
 	if head == "" {
-		Redirector{}.ServeHTTP(w, r)
+		IndexHandler{s.store, s.cfg}.ServeHTTP(w, r)
 
 		return
 	}
 
-	jotHandler, err := NewJotHandlerFromKey(head, s.seed, s.masterPassword, s.dataDir)
+	JotHandler{head, s.store}.ServeHTTP(w, r)
+}
+
+func (s *Server) Run() error {
+	return http.ListenAndServe(s.cfg.BindAddr, s)
+}
+
+var indexGetResponseTmpl = `Jot version %s
+
+Usage: 
+  Creating a jot:
+    Request:
+      curl -i --data-binary @textfile.txt %s/
+    Response:
+      HTTP/1.1 200 OK
+      Jot-Password: PE4VtqnNjrK3C07
+      Date: Sat, 30 Jun 2018 19:09:03 GMT
+      Content-Length: 32
+      Content-Type: text/plain; charset=utf-8
+
+      %s/LIU_JPnHp
+
+  Editing a jot:
+    Request:
+      curl -i --data-binary @updated.txt %s/LIU_JPnHp?password=PE4VtqnNjrK3C07
+    Response:
+      HTTP/1.1 303 See Other
+      Location: /LIU_JPnHp
+      Date: Sat, 30 Jun 2018 19:14:26 GMT
+      Content-Length: 0
+
+Make note of the Jot-Password header as that's the password used to edit
+your jot.
+
+Source code: https://github.com/kyleterry/jot
+`
+
+type IndexHandler struct {
+	store *jot.JotStore
+	cfg   *config.Config
+}
+
+func (h IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		host := extractHost(h.cfg, r)
+		fmt.Fprintf(w, indexGetResponseTmpl, jot.Version, host, host, host)
+
+		return
+	} else if r.Method == "POST" {
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+			return
+		}
+
+		jotFile, err := h.store.CreateFile(body)
+
+		w.Header().Set("Jot-Password", jotFile.Password)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(fmt.Sprintf("%s/%s\n", extractHost(h.cfg, r), jotFile.Key)))
+
+		return
+	}
+
+	http.Error(w, "Not found :(", http.StatusNotFound)
+}
+
+type JotHandler struct {
+	key   string
+	store *jot.JotStore
+}
+
+func (h JotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	jotFile, err := h.store.GetFile(h.key)
 	if err != nil {
 		http.Error(w, "Jot not found :(", http.StatusNotFound)
 
 		return
 	}
 
-	jotHandler.ServeHTTP(w, r)
-}
+	switch r.Method {
+	case "GET":
+		w.WriteHeader(http.StatusOK)
+		_, err := fmt.Fprint(w, string(jotFile.Content))
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 
-func (s *Server) Run() error {
-	return http.ListenAndServe(s.bindAddr, s)
-}
+		return
+	case "POST":
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
 
-type Redirector struct {
-}
+		pw := r.URL.Query().Get("password")
 
-type JotHandler struct {
+		jotFile.Content = body
+
+		err = h.store.UpdateFile(pw, jotFile)
+		if err != nil {
+			http.Error(w, "Nope", http.StatusForbidden)
+
+			return
+		}
+
+		http.Redirect(w, r, fmt.Sprintf("/%s", jotFile.Key), http.StatusSeeOther)
+
+		return
+	case "DELETE":
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+		// get password and store.Delete
+
+		return
+	}
 }
 
 func shiftPath(p string) (head, tail string) {
@@ -72,4 +165,12 @@ func shiftPath(p string) (head, tail string) {
 	}
 
 	return p[1:i], p[1:]
+}
+
+func extractHost(cfg *config.Config, r *http.Request) string {
+	if cfg.Host != "" {
+		return cfg.Host
+	}
+
+	return fmt.Sprintf("http://%s", r.Host)
 }
