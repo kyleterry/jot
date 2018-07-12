@@ -3,6 +3,7 @@ package jot
 import (
 	"errors"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/cloudflare/gokey"
@@ -71,6 +72,25 @@ func (s *JotStore) UpdateFile(suppliedPW string, jotFile *JotFile) error {
 
 	if err := s.writeFile(path, jotFile); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (s *JotStore) DeleteFile(suppliedPW, key string) error {
+	path := filepath.Join(s.dataDir, key)
+
+	password, err := gokey.GetPass(s.masterPassword, key, s.seed, defaultSpec())
+	if err != nil {
+		return err
+	}
+
+	if suppliedPW != password {
+		return errors.New("invalid password")
+	}
+
+	if err := os.Remove(path); err != nil {
+		return errors.New("could not delete jot")
 	}
 
 	return nil

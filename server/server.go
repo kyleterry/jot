@@ -123,6 +123,7 @@ func (h JotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, err := fmt.Fprint(w, string(jotFile.Content))
 		if err != nil {
@@ -141,8 +142,7 @@ func (h JotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		jotFile.Content = body
 
-		err = h.store.UpdateFile(pw, jotFile)
-		if err != nil {
+		if err := h.store.UpdateFile(pw, jotFile); err != nil {
 			http.Error(w, "Nope", http.StatusForbidden)
 
 			return
@@ -152,8 +152,19 @@ func (h JotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		return
 	case "DELETE":
+		pw := r.URL.Query().Get("password")
+
+		if err := h.store.DeleteFile(pw, jotFile.Key); err != nil {
+			http.Error(w, "Nope", http.StatusForbidden)
+
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+
+		return
+	default:
 		http.Error(w, "not implemented", http.StatusNotImplemented)
-		// get password and store.Delete
 
 		return
 	}
