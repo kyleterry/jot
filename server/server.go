@@ -1,8 +1,9 @@
 package server
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"path"
@@ -20,12 +21,12 @@ type Server struct {
 }
 
 // New returns a new instance of a jot Server with
-// the data from the seedFile loaded or an error.
-func New(cfg *config.Config, store *jot.JotStore) (*Server, error) {
+// the data from the seedFile loaded.
+func New(cfg *config.Config, store *jot.JotStore) *Server {
 	return &Server{
 		store: store,
 		cfg:   cfg,
-	}, nil
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -42,9 +43,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	JotHandler{head, s.store}.ServeHTTP(w, r)
 }
 
-func (s *Server) Run() error {
-	log.Printf("listening on: %s", s.cfg.BindAddr)
-	return http.ListenAndServe(s.cfg.BindAddr, s)
+func (s *Server) Run(ctx context.Context) (context.CancelFunc, chan error) {
+	ctx, cancel := context.WithCancel(ctx)
+	errch := make(chan error, 1)
+
+	hsrv := &http.Server{Addr: s.cfg.BindAddr, Handler: s}
+	go func() {
+		go s.run(hsrv, errch)
+
+		<-ctx.Done()
+
+		log.Println("shutting down")
+		hsrv.Shutdown(ctx)
+	}()
+
+	scheme := "http"
+	if hsrv.TLSConfig != nil {
+		scheme = "https"
+	}
+	log.Printf("listening on: %s://%s", scheme, hsrv.Addr)
+
+	return cancel, errch
+}
+
+func (s *Server) run(srv *http.Server, errch chan<- error) {
+	err := srv.ListenAndServe()
+	errch <- err
+	close(errch)
 }
 
 var indexGetResponseTmpl = `Jot version %s
@@ -89,17 +114,15 @@ func (h IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		return
 	} else if r.Method == "POST" {
-		body, err := ioutil.ReadAll(r.Body)
+		jotFile, err := h.store.CreateFile(r.Body)
 		if err != nil {
+			log.Println(err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 
 			return
 		}
 
-		jotFile, err := h.store.CreateFile(body)
-
 		w.Header().Set("Jot-Password", jotFile.Password)
-		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(fmt.Sprintf("%s/%s\n", extractHost(h.cfg, r), jotFile.Key)))
 
 		return
@@ -116,7 +139,7 @@ type JotHandler struct {
 func (h JotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	jotFile, err := h.store.GetFile(h.key)
 	if err != nil {
-		http.Error(w, "Jot not found :(", http.StatusNotFound)
+		http.Error(w, "jot not found :(", http.StatusNotFound)
 
 		return
 	}
@@ -124,23 +147,19 @@ func (h JotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, err := fmt.Fprint(w, string(jotFile.Content))
-		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+		defer jotFile.Content.Close()
+
+		if _, err := io.Copy(w, jotFile.Content); err != nil {
+			log.Println("failed to write content to response")
 			return
 		}
 
 		return
 	case "POST":
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-		}
-
 		pw := r.URL.Query().Get("password")
 
-		jotFile.Content = body
+		jotFile.Content = r.Body
 
 		if err := h.store.UpdateFile(pw, jotFile); err != nil {
 			http.Error(w, "Nope", http.StatusForbidden)

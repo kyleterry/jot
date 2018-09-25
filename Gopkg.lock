@@ -3,36 +3,57 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:8edf673d043a245b12224caf3313f6a609f4b81198c645ea4c5b356be6beac61"
   name = "github.com/cloudflare/gokey"
   packages = ["."]
+  pruneopts = "UT"
   revision = "6bb7290160583cf1fd7cdcb5726093a00dd23c25"
 
 [[projects]]
   branch = "master"
+  digest = "1:bd1b5ce5a04000dbe5d1c22812699509c17a8572c6385a43023c7e08ea4e7623"
   name = "github.com/joeshaw/envdecode"
   packages = ["."]
+  pruneopts = "UT"
   revision = "c9e0158544672841c3ebf49308f536d918f2e525"
 
 [[projects]]
+  digest = "1:40e195917a951a8bf867cd05de2a46aaf1806c50cf92eebf4c16f78cd196f747"
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
+  version = "v0.8.0"
+
+[[projects]]
   branch = "master"
+  digest = "1:2da42ab2c4996c844599461d1f821624af401b350180e2cb852bcfb887cb0b5f"
   name = "github.com/teris-io/shortid"
   packages = ["."]
+  pruneopts = "UT"
   revision = "771a37caa5cf0c81f585d7b6df4dfc77e0615b5c"
 
 [[projects]]
   branch = "master"
+  digest = "1:317c72a88a99fb672b1841c0070fbceed918d720f191607ecc55a8285d852611"
   name = "golang.org/x/crypto"
   packages = [
     "ed25519",
     "ed25519/internal/edwards25519",
     "hkdf",
-    "pbkdf2"
+    "pbkdf2",
   ]
+  pruneopts = "UT"
   revision = "a49355c7e3f8fe157a85be2f77e6e269a0f89602"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "edb850e487f4e891beb3fa963197681c4c8e4d3dc4f8eefee544fa8b00b6e425"
+  input-imports = [
+    "github.com/cloudflare/gokey",
+    "github.com/joeshaw/envdecode",
+    "github.com/pkg/errors",
+    "github.com/teris-io/shortid",
+  ]
   solver-name = "gps-cdcl"
   solver-version = 1

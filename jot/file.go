@@ -1,7 +1,9 @@
 package jot
 
+import "io"
+
 type JotFile struct {
 	Key      string
-	Content  []byte
+	Content  io.ReadCloser
 	Password string
 }
