@@ -12,7 +12,6 @@ if [ -z "${JOT_MASTER_PASSWORD}" ]; then
 fi
 
 if [ ! -f ${JOT_SEED_FILE} ]; then
-    echo "generating seed file for first run"
     gokey -p "${JOT_MASTER_PASSWORD}" -t seed -o "${JOT_SEED_FILE}"
 fi
 

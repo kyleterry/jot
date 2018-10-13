@@ -1,9 +1,21 @@
 package store
 
-import "io"
+import (
+	"io"
+	"time"
+)
 
-type Store interface {
-	Get(key string) (io.ReadCloser, error)
+type GetResponse struct {
+	Content io.ReadCloser
+}
+
+type StatResponse struct {
+	ModifiedDate time.Time
+}
+
+type Backend interface {
+	Stat(key string) (*StatResponse, error)
+	Get(key string) (*GetResponse, error)
 	Put(key string, content io.ReadCloser) error
 	Delete(key string) error
 }

@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/joeshaw/envdecode"
+	"github.com/kyleterry/jot/auth"
 	"github.com/kyleterry/jot/config"
 	"github.com/kyleterry/jot/jot"
 	"github.com/kyleterry/jot/server"
@@ -51,12 +52,33 @@ func main() {
 		log.Fatal(err)
 	}
 
-	store, err := jot.NewStore(&cfg)
+	exists, err := auth.SeedFileExists(cfg.SeedFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	srv := server.New(&cfg, store)
+	if !exists {
+		log.Printf("seedfile is missing; attempting to create one")
+		if err := auth.MakeSeedFile(&cfg); err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("created seedfile: %s", cfg.SeedFile)
+	}
+
+	seed, err := auth.LoadSeed(cfg.SeedFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	manager := auth.NewPasswordManager(cfg.MasterPassword, seed)
+
+	store, err := jot.NewStore(&cfg, &manager)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	srv := server.New(&cfg, store, &manager)
 
 	ctx := context.Background()
 	cancel, errch := srv.Run(ctx)

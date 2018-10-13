@@ -6,7 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pkg/errors"
+	"github.com/kyleterry/jot/jot/errors"
+	"github.com/kyleterry/jot/jot/store"
 )
 
 const DefaultPermissions = 0644
@@ -19,7 +20,22 @@ type Filesystem struct {
 	path string
 }
 
-func (fs *Filesystem) Get(key string) (io.ReadCloser, error) {
+func (fs *Filesystem) Stat(key string) (*store.StatResponse, error) {
+	path := filepath.Join(fs.path, key)
+
+	stat, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.NewNotFoundError(key).WithCause(err)
+		}
+
+		return nil, err
+	}
+
+	return &store.StatResponse{ModifiedDate: stat.ModTime()}, nil
+}
+
+func (fs *Filesystem) Get(key string) (*store.GetResponse, error) {
 	path := filepath.Join(fs.path, key)
 
 	f, err := os.Open(path)
@@ -27,17 +43,20 @@ func (fs *Filesystem) Get(key string) (io.ReadCloser, error) {
 		if f != nil {
 			f.Close()
 		}
+		if os.IsNotExist(err) {
+			return nil, errors.NewNotFoundError(key).WithCause(err)
+		}
 
-		return nil, errors.Wrap(err, "failed to get content from filesystem")
+		return nil, err
 	}
 
-	return f, nil
+	return &store.GetResponse{Content: f}, nil
 }
 
 func (fs *Filesystem) Put(key string, content io.ReadCloser) error {
 	path := filepath.Join(fs.path, key)
 
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, DefaultPermissions)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, DefaultPermissions)
 
 	defer func() {
 		f.Close()
@@ -45,13 +64,13 @@ func (fs *Filesystem) Put(key string, content io.ReadCloser) error {
 	}()
 
 	if err != nil {
-		return errors.Wrap(err, "failed to open file for writing")
+		return err
 	}
 
 	buf := bufio.NewReader(content)
 
 	if _, err := buf.WriteTo(f); err != nil {
-		return errors.Wrap(err, "failed to write to file")
+		return err
 	}
 
 	return nil
