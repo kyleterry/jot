@@ -6,7 +6,7 @@ RUN apk --no-cache add make git gcc bind-dev musl-dev
 RUN go get -u github.com/cloudflare/gokey/cmd/gokey
 RUN make
 
-FROM alpine:3.4
+FROM alpine:latest
 RUN apk --no-cache add bash
 COPY --from=builder /go/src/github.com/kyleterry/jot/bin/jot /usr/bin/jot
 COPY --from=builder /go/bin/gokey /usr/bin/gokey
