@@ -12,7 +12,7 @@ import (
 )
 
 // Version is the jot store application version
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 // JotStore wraps a backend implementation and creates/checks passwords for a jot
 type JotStore struct {

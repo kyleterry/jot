@@ -96,51 +96,6 @@ func (s *Server) run(srv *http.Server, errch chan<- error) {
 	close(errch)
 }
 
-var indexGetResponseTmpl = `Jot version %s
-
-Usage: 
-  Below examples use the curl command with -i set so we can see the headers.
-
-  Creating a jot:
-    Request:
-      curl -i --data-binary @textfile.txt %s/
-    Response:
-      HTTP/1.1 201 Created
-      Jot-Password: PE4VtqnNjrK3C07
-      Date: Sat, 30 Jun 2018 19:09:03 GMT
-      Content-Length: 32
-      Content-Type: text/plain; charset=utf-8
-
-      %s/LIU_JPnHp
-
-  Getting a jot:
-    Request:
-      curl -i %s/LIU_JPnHp
-	Response:
-	  HTTP/1.1 200 OK
-      Content-Type: text/plain; charset=utf-8
-      Etag: 2018-06-30T19:09:03.735647737-07:00
-      Date: Sat, 30 Jun 2018 19:10:13 GMT
-      Content-Length: 38
-
-	  here is my content from textfile.txt!
-
-  Editing a jot:
-    Request:
-	  curl -i -H "If-Match: 2018-06-30T19:09:03.735647737-07:00" --data-binary @updated.txt %s/LIU_JPnHp?password=PE4VtqnNjrK3C07
-    Response:
-      HTTP/1.1 303 See Other
-      Location: /LIU_JPnHp
-      Date: Sat, 30 Jun 2018 19:14:26 GMT
-      Content-Length: 0
-
-Make note of the Jot-Password header as that's the password used to edit
-your jot. ETag can be used in conjunction with If-None-Match and If-Match
-for caching and collision prevention on PUT.
-
-Source code: https://github.com/kyleterry/jot
-`
-
 // IndexHandler handles requests to the / endpoint
 type IndexHandler struct {
 	store *jot.JotStore
@@ -148,9 +103,13 @@ type IndexHandler struct {
 }
 
 func (h IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	host := extractHost(h.cfg, r)
+
 	if r.Method == http.MethodGet {
-		host := extractHost(h.cfg, r)
-		fmt.Fprintf(w, indexGetResponseTmpl, jot.Version, host, host, host)
+		ctx := IndexTemplateContext{Version: jot.Version, Host: host}
+		if err := render(w, indexTemplate, ctx); err != nil {
+			log.Println("err while rendering remplate: ", err)
+		}
 
 		return
 	} else if r.Method == http.MethodPost {
@@ -163,7 +122,7 @@ func (h IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Jot-Password", jotFile.Password)
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(fmt.Sprintf("%s/%s", extractHost(h.cfg, r), jotFile.Key)))
+		w.Write([]byte(fmt.Sprintf("%s/%s", host, jotFile.Key)))
 
 		return
 	}
