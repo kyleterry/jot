@@ -68,7 +68,7 @@ create_manifest() {
 
 build_images
 
-if [ -z ${DIRTY+x} ]; then
+if [ -z "${DIRTY}" ]; then
     create_manifest latest
     create_manifest "${VERSION}"
 else
