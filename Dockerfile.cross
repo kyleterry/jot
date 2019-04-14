@@ -1,17 +1,22 @@
-FROM golang:1.11-alpine as builder
+# vim: ft=dockerfile
+# FROM __BASEIMAGE_ARCH__/golang:1.12-alpine as builder
+# __CROSS_COPY qemu-__QEMU_ARCH__-static /usr/bin/
+FROM golang:1.12-alpine as builder
 ENV GO111MODULE on
+ENV GOARCH=__GOLANG_ARCH__
 WORKDIR /go/src/github.com/kyleterry/jot
 COPY . .
 RUN sed -i 's/http\:\/\/dl-cdn.alpinelinux.org/https\:\/\/mirror.clarkson.edu/g' /etc/apk/repositories
 RUN apk --no-cache add make git gcc bind-dev musl-dev
-RUN go get -u github.com/cloudflare/gokey/cmd/gokey
+RUN GOARCH=${GOARCH} GOOS=linux go build -mod=vendor github.com/cloudflare/gokey/cmd/gokey
 RUN make
 
-FROM alpine:latest
+FROM __BASEIMAGE_ARCH__/alpine:latest
+__CROSS_COPY qemu-__QEMU_ARCH__-static /usr/bin/
 RUN sed -i 's/http\:\/\/dl-cdn.alpinelinux.org/https\:\/\/mirror.clarkson.edu/g' /etc/apk/repositories
 RUN apk --no-cache add bash
 COPY --from=builder /go/src/github.com/kyleterry/jot/bin/jot /usr/bin/jot
-COPY --from=builder /go/bin/gokey /usr/bin/gokey
+COPY --from=builder /go/src/github.com/kyleterry/jot/gokey /usr/bin/gokey
 COPY --from=builder /go/src/github.com/kyleterry/jot/docker-entrypoint.sh /
 VOLUME /etc/jot
 VOLUME /var/lib/jot

@@ -1,0 +1,68 @@
+#!/bin/bash
+
+set -euo pipefail
+
+docker_repo=kyleterry/jot
+
+. ./build-info.sh
+
+build_images() {
+    for docker_arch in amd64 arm32v7 arm64v8; do
+        case "${docker_arch}" in
+            amd64   )
+                qemu_arch="x86_64"
+                golang_arch="amd64"
+                ;;
+            arm32v7 )
+                qemu_arch="arm"
+                golang_arch="arm"
+                ;;
+            arm64v8 )
+                qemu_arch="aarch64"
+                golang_arch="arm64"
+                ;;
+        esac
+
+        cp Dockerfile.cross Dockerfile."${docker_arch}"
+
+        sed -i "s|__BASEIMAGE_ARCH__|${docker_arch}|g" Dockerfile."${docker_arch}"
+        sed -i "s|__QEMU_ARCH__|${qemu_arch}|g" Dockerfile."${docker_arch}"
+        sed -i "s|__GOLANG_ARCH__|${golang_arch}|g" Dockerfile."${docker_arch}"
+
+        if [ "${docker_arch}" == "amd64" ]; then
+            sed -i "/__CROSS_/d" Dockerfile."${docker_arch}"
+        else
+            sed -i "s/__CROSS_//g" Dockerfile."${docker_arch}"
+
+            curl -Lfs "https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-3/x86_64_qemu-${qemu_arch}-static.tar.gz" | tar zxvf -
+        fi
+
+        latest_tag="${docker_repo}":"${docker_arch}"-latest
+        version_tag="${docker_repo}":"${docker_arch}"-"${VERSION}"
+
+        docker build -f Dockerfile."${docker_arch}" -t "${latest_tag}" -t "${version_tag}" .
+        docker push "${latest_tag}"
+        docker push "${version_tag}"
+
+        rm Dockerfile."${docker_arch}"
+        rm -f qemu-"${qemu_arch}"-static
+    done
+}
+
+create_manifest() {
+    local version
+    version="${1}"
+
+    docker manifest create --amend \
+        "${docker_repo}":"${version}" \
+        "${docker_repo}":amd64-"${version}" \
+        "${docker_repo}":arm32v7-"${version}" \
+        "${docker_repo}":arm64v8-"${version}"
+    docker manifest annotate "${docker_repo}":"${version}" "${docker_repo}":arm32v7-"${version}" --os linux --arch arm
+    docker manifest annotate "${docker_repo}":"${version}" "${docker_repo}":arm64v8-"${version}" --os linux --arch arm64 --variant armv8
+    docker manifest push --purge "${docker_repo}":"${version}"
+}
+
+build_images
+create_manifest latest
+create_manifest "${version}"
