@@ -41,8 +41,11 @@ build_images() {
         version_tag="${docker_repo}":"${docker_arch}"-"${VERSION}"
 
         docker build -f Dockerfile."${docker_arch}" -t "${latest_tag}" -t "${version_tag}" .
-        docker push "${latest_tag}"
-        docker push "${version_tag}"
+
+        if [ -z ${DIRTY+x} ]; then
+            docker push "${latest_tag}"
+            docker push "${version_tag}"
+        fi
 
         rm Dockerfile."${docker_arch}"
         rm -f qemu-"${qemu_arch}"-static
@@ -64,5 +67,10 @@ create_manifest() {
 }
 
 build_images
-create_manifest latest
-create_manifest "${version}"
+
+if [ -z ${DIRTY+x} ]; then
+    create_manifest latest
+    create_manifest "${VERSION}"
+else
+    echo -e "\n\nrepository state is dirty\nimages were created but not pushed"
+fi
