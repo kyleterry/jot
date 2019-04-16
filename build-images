@@ -44,7 +44,7 @@ build_images() {
 
         docker build -f "${docker_file}" -t "${version_tag}" .
 
-        if [ -z ${DIRTY+x} ]; then
+        if [ -z "${DIRTY}" ]; then
             docker push "${version_tag}"
         fi
 
