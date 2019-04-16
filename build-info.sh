@@ -1,6 +1,5 @@
 #!/bin/bash
 
-DIRTY=
 [ -n "$(git status --porcelain --untracked-files=no)" ] && DIRTY="-dirty"
 SHORT_COMMIT="$(git rev-parse --short HEAD)"
 TAG=$(git tag -l --contains HEAD | head -n 1)
