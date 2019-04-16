@@ -3,73 +3,69 @@
 set -euo pipefail
 
 docker_repo=kyleterry/jot
+archs="amd64 arm32v7 arm64v8"
 
 . ./build-info.sh
 
 build_images() {
-    for docker_arch in amd64 arm32v7 arm64v8; do
-        case "${docker_arch}" in
+    while read HASH ARCH VARIANT; do
+        case "${ARCH}" in
             amd64   )
                 qemu_arch="x86_64"
-                golang_arch="amd64"
+                variant=
                 ;;
-            arm32v7 )
+            arm     )
                 qemu_arch="arm"
-                golang_arch="arm"
+                variant="${VARIANT}"
                 ;;
-            arm64v8 )
+            arm64   )
                 qemu_arch="aarch64"
-                golang_arch="arm64"
+                variant="${VARIANT}"
+                ;;
+            *       )
+                continue
                 ;;
         esac
+        docker_file=Dockerfile."${ARCH}${variant}"
+        cp Dockerfile.cross "${docker_file}"
 
-        cp Dockerfile.cross Dockerfile."${docker_arch}"
+        sed -i "s|__BASEIMAGE_HASH__|${HASH}|g" "${docker_file}"
+        sed -i "s|__QEMU_ARCH__|${qemu_arch}|g" "${docker_file}"
+        sed -i "s|__GOLANG_ARCH__|${ARCH}|g" "${docker_file}"
 
-        sed -i "s|__BASEIMAGE_ARCH__|${docker_arch}|g" Dockerfile."${docker_arch}"
-        sed -i "s|__QEMU_ARCH__|${qemu_arch}|g" Dockerfile."${docker_arch}"
-        sed -i "s|__GOLANG_ARCH__|${golang_arch}|g" Dockerfile."${docker_arch}"
-
-        if [ "${docker_arch}" == "amd64" ]; then
-            sed -i "/__CROSS_/d" Dockerfile."${docker_arch}"
+        if [ "${ARCH}" == "amd64" ]; then
+            sed -i "/__CROSS_/d" "${docker_file}"
         else
-            sed -i "s/__CROSS_//g" Dockerfile."${docker_arch}"
-
+            sed -i "s/__CROSS_//g" "${docker_file}"
             curl -Lfs "https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-3/x86_64_qemu-${qemu_arch}-static.tar.gz" | tar zxvf -
         fi
 
-        latest_tag="${docker_repo}":"${docker_arch}"-latest
-        version_tag="${docker_repo}":"${docker_arch}"-"${VERSION}"
+        version_tag="${docker_repo}":"${VERSION}"-"${ARCH}${variant}"
 
-        docker build -f Dockerfile."${docker_arch}" -t "${latest_tag}" -t "${version_tag}" .
+        docker build -f "${docker_file}" -t "${version_tag}" .
 
         if [ -z ${DIRTY+x} ]; then
-            docker push "${latest_tag}"
             docker push "${version_tag}"
         fi
 
-        rm Dockerfile."${docker_arch}"
+        rm "${docker_file}"
         rm -f qemu-"${qemu_arch}"-static
-    done
+    done <<< $(docker manifest inspect alpine | jq -r '.manifests[] | "\(.digest) \(.platform.architecture) \(.platform.variant)"')
 }
 
 create_manifest() {
     local version
     version="${1}"
 
-    docker manifest create --amend \
-        "${docker_repo}":"${version}" \
-        "${docker_repo}":amd64-"${version}" \
-        "${docker_repo}":arm32v7-"${version}" \
-        "${docker_repo}":arm64v8-"${version}"
-    docker manifest annotate "${docker_repo}":"${version}" "${docker_repo}":arm32v7-"${version}" --os linux --arch arm
-    docker manifest annotate "${docker_repo}":"${version}" "${docker_repo}":arm64v8-"${version}" --os linux --arch arm64 --variant armv8
-    docker manifest push --purge "${docker_repo}":"${version}"
+    manifest-tool push from-args \
+        --platforms linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8 \
+        --template kyleterry/jot:"${version}"-ARCHVARIANT \
+        --target kyleterry/jot:"${version}"
 }
 
 build_images
 
 if [ -z "${DIRTY}" ]; then
-    create_manifest latest
     create_manifest "${VERSION}"
 else
     echo -e "\n\nrepository state is dirty\nimages were created but not pushed"

@@ -1,6 +1,4 @@
 # vim: ft=dockerfile
-# FROM __BASEIMAGE_ARCH__/golang:1.12-alpine as builder
-# __CROSS_COPY qemu-__QEMU_ARCH__-static /usr/bin/
 FROM golang:1.12-alpine as builder
 ENV GO111MODULE on
 ENV GOARCH=__GOLANG_ARCH__
@@ -11,7 +9,7 @@ RUN apk --no-cache add make git gcc bind-dev musl-dev
 RUN GOARCH=${GOARCH} GOOS=linux go build -mod=vendor github.com/cloudflare/gokey/cmd/gokey
 RUN make
 
-FROM __BASEIMAGE_ARCH__/alpine:latest
+FROM alpine@__BASEIMAGE_HASH__
 __CROSS_COPY qemu-__QEMU_ARCH__-static /usr/bin/
 RUN sed -i 's/http\:\/\/dl-cdn.alpinelinux.org/https\:\/\/mirror.clarkson.edu/g' /etc/apk/repositories
 RUN apk --no-cache add bash
