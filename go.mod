@@ -9,3 +9,5 @@ require (
 	github.com/stretchr/testify v1.2.2
 	github.com/teris-io/shortid v0.0.0-20171029131806-771a37caa5cf
 )
+
+go 1.13

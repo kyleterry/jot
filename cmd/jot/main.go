@@ -8,10 +8,10 @@ import (
 	"syscall"
 
 	"github.com/joeshaw/envdecode"
-	"github.com/kyleterry/jot/auth"
-	"github.com/kyleterry/jot/config"
-	"github.com/kyleterry/jot/jot"
-	"github.com/kyleterry/jot/server"
+	"github.com/kyleterry/jot/pkg/auth"
+	"github.com/kyleterry/jot/pkg/config"
+	"github.com/kyleterry/jot/pkg/jot"
+	"github.com/kyleterry/jot/pkg/server"
 )
 
 func trap(cancel context.CancelFunc, errch chan error) int {

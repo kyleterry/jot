@@ -2,12 +2,14 @@
 FROM golang:1.12-alpine as builder
 ENV GO111MODULE on
 ENV GOARCH=__GOLANG_ARCH__
+ENV VERSION=__JOT_VERSION__
+ENV COMMIT=__JOT_COMMIT__
 WORKDIR /go/src/github.com/kyleterry/jot
 COPY . .
 RUN sed -i 's/http\:\/\/dl-cdn.alpinelinux.org/https\:\/\/mirror.clarkson.edu/g' /etc/apk/repositories
 RUN apk --no-cache add make git gcc bind-dev musl-dev
-RUN GOARCH=${GOARCH} GOOS=linux go build -mod=vendor github.com/cloudflare/gokey/cmd/gokey
-RUN make
+RUN GOARCH="${GOARCH}" GOOS=linux go build -mod=vendor github.com/cloudflare/gokey/cmd/gokey
+RUN VERSION="${VERSION}" COMMIT="${COMMIT}" make
 
 FROM alpine@__BASEIMAGE_HASH__
 __CROSS_COPY qemu-__QEMU_ARCH__-static /usr/bin/

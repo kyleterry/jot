@@ -32,6 +32,8 @@ build_images() {
         sed -i "s|__BASEIMAGE_HASH__|${HASH}|g" "${docker_file}"
         sed -i "s|__QEMU_ARCH__|${qemu_arch}|g" "${docker_file}"
         sed -i "s|__GOLANG_ARCH__|${ARCH}|g" "${docker_file}"
+        sed -i "s|__JOT_VERSION__|${VERSION}|g" "${docker_file}"
+        sed -i "s|__JOT_COMMIT__|${SHORT_COMMIT}|g" "${docker_file}"
 
         if [ "${ARCH}" == "amd64" ]; then
             sed -i "/__CROSS_/d" "${docker_file}"
