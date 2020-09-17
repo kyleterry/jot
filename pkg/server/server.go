@@ -20,9 +20,12 @@ import (
 type ContextKey int
 
 const (
-	// CKJotFile is the key for context that holds the TextFile object loaded by
+	// CKTextFile is the key for context that holds the TextFile object loaded by
 	// middleware
 	CKTextFile ContextKey = iota
+	// CKImageGallery is the key for context that holds the ImageGallery object
+	// loaded by middleware
+	CKImageGallery
 	// CKObjectKey is any key that can be used to look up an object from any of
 	// the stores
 	CKObjectKey

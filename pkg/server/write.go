@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/kyleterry/jot/pkg/jot/errors"
+	"github.com/kyleterry/jot/pkg/errors"
 )
 
 func WriteError(err error, w http.ResponseWriter) {

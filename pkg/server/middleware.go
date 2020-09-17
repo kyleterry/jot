@@ -1,6 +1,9 @@
 package server
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 type middlewareFunc func(http.Handler) http.Handler
 
@@ -42,4 +45,21 @@ func (m Middleware) ExtendWith(theirs Middleware) Middleware {
 // NewMiddleware returns a new Middleware
 func NewMiddleware(handlers ...middlewareFunc) Middleware {
 	return Middleware{handlers}
+}
+
+func keyRequired(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key, _ := shiftPath(r.URL.Path)
+
+		if key == "" {
+			http.NotFound(w, r)
+
+			return
+		}
+
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, CKObjectKey, key)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

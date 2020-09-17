@@ -5,15 +5,20 @@ import (
 	"io"
 
 	"github.com/kyleterry/jot/pkg/auth"
-	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/jot/errors"
+	"github.com/kyleterry/jot/pkg/errors"
+	"github.com/kyleterry/jot/pkg/id"
 	"github.com/kyleterry/jot/pkg/jot/store"
 	"github.com/kyleterry/jot/pkg/types"
-	"github.com/teris-io/shortid"
 )
+
+type Services interface {
+	PasswordManager() auth.PasswordManagerService
+	IDManager() id.IDManagerService
+}
 
 // JotStore wraps a backend implementation and creates/checks passwords for a jot
 type JotStore struct {
+	services        Services
 	passwordManager auth.PasswordManager
 	backend         store.Backend
 }
@@ -74,17 +79,12 @@ func (s *JotStore) Get(ctx context.Context, key string) (*types.TextFile, error)
 }
 
 func (s *JotStore) Create(ctx context.Context, content io.ReadCloser) (*types.TextFile, error) {
-	sid, err := shortid.New(1, shortid.DefaultABC, 2342)
+	key, err := s.services.IDManager().Generate()
 	if err != nil {
-		return nil, errors.NewUnknownError("failed to generate shortid").WithCause(err)
+		return nil, errors.NewUnknownError("failed to generate id").WithCause(err)
 	}
 
-	key, err := sid.Generate()
-	if err != nil {
-		return nil, errors.NewUnknownError("failed to generate shortid").WithCause(err)
-	}
-
-	password, err := s.passwordManager.Generate(key)
+	password, err := s.services.PasswordManager().Generate(key)
 	if err != nil {
 		return nil, errors.NewUnknownError("failed to generate password").WithCause(err)
 	}
@@ -116,9 +116,9 @@ func (s *JotStore) Delete(ctx context.Context, jotFile *types.TextFile) error {
 	return nil
 }
 
-func NewStore(cfg *config.Config, backend store.Backend, pm auth.PasswordManager) *JotStore {
+func NewStore(backend store.Backend, services Services) *JotStore {
 	return &JotStore{
-		passwordManager: pm,
-		backend:         backend,
+		services: services,
+		backend:  backend,
 	}
 }

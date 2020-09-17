@@ -2,11 +2,21 @@ package filesystem
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/kyleterry/jot/pkg/errors"
+	"github.com/kyleterry/jot/pkg/image/backend"
 )
+
+const galleryFileName = "gallery"
 
 type Config struct {
 	Path                 string
@@ -20,33 +30,57 @@ type Backend struct {
 	directoryPermissions os.FileMode
 }
 
+func (b *Backend) Stat(ctx context.Context, key string) (*backend.StatResponse, error) {
+	path := filepath.Join(b.path, key, galleryFileName)
+
+	stat, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.NewNotFoundError(key).WithCause(err)
+		}
+
+		return nil, err
+	}
+
+	return &backend.StatResponse{ModifiedDate: stat.ModTime()}, nil
+}
+
 func (b *Backend) Get(ctx context.Context, key string) (map[string]io.ReadCloser, error) {
 	images := map[string]io.ReadCloser{}
 
-	path := filepath.Join(b.path, key)
+	path := filepath.Join(b.path, key, galleryFileName)
 
-	err := filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !info.IsDir() {
-			f, err := os.Open(fp)
-			if err != nil {
-				if f != nil {
-					f.Close()
-				}
-
-				return err
-			}
-
-			images[info.Name()] = f
-		}
-
-		return nil
-	})
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
+	}
+
+	defer f.Close()
+
+	reader := bufio.NewReader(f)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+
+			return nil, err
+		}
+
+		parts := strings.Fields(line)
+		if len(parts) != 2 {
+			return nil, errors.NewUnknownError("malformed line from image gallery")
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return nil, err
+		}
+
+		r := bytes.NewBuffer(decoded)
+		images[parts[0]] = ioutil.NopCloser(r)
 	}
 
 	return images, nil
@@ -64,20 +98,25 @@ func (b *Backend) Create(ctx context.Context, key string, images map[string]io.R
 		return err
 	}
 
-	for fn, rc := range images {
-		fp := filepath.Join(dir, fn)
+	fp := filepath.Join(dir, galleryFileName)
 
-		f, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, b.filePermissions)
+	galleryFile, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, b.filePermissions)
+	if err != nil {
+		return err
+	}
 
-		defer f.Close()
+	defer galleryFile.Close()
 
+	for imageName, reader := range images {
+		buf := &bytes.Buffer{}
+
+		_, err := buf.ReadFrom(reader)
 		if err != nil {
 			return err
 		}
 
-		buf := bufio.NewReader(rc)
-
-		if _, err := buf.WriteTo(f); err != nil {
+		encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+		if _, err := fmt.Fprintf(galleryFile, "%s %s\n", imageName, encoded); err != nil {
 			return err
 		}
 	}

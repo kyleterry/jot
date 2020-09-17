@@ -10,7 +10,7 @@ import (
 
 	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/jot/errors"
+	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/text"
 	"github.com/kyleterry/jot/pkg/types"
 )
@@ -107,25 +107,6 @@ func (h jotHandler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-
-	return
-}
-
-func (h jotHandler) keyRequired(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key, _ := shiftPath(r.URL.Path)
-
-		if key == "" {
-			http.NotFound(w, r)
-
-			return
-		}
-
-		ctx := r.Context()
-		ctx = context.WithValue(ctx, CKObjectKey, key)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
 }
 
 // jotPreloader instructs the store to do a stat on the object before loading
@@ -255,7 +236,7 @@ func newJotHandler(cfg *config.Config, services textServices) *jotHandler {
 		services: services,
 	}
 
-	objKey := NewMiddleware((*h).keyRequired)
+	objKey := NewMiddleware(keyRequired)
 	authenticated := NewMiddleware((*h).authentication)
 	jotLoaded := NewMiddleware(
 		(*h).jotPreloader,

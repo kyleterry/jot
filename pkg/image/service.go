@@ -9,6 +9,7 @@ import (
 
 // StoreService fetches, creates, and deletes image galleries
 type StoreService interface {
+	Stat(ctx context.Context, key string) (*types.GalleryFile, error)
 	Get(ctx context.Context, key string) (*types.GalleryFile, error)
 	Create(ctx context.Context, content map[string]io.ReadCloser) (*types.GalleryFile, error)
 	Delete(ctx context.Context, gf *types.GalleryFile) error

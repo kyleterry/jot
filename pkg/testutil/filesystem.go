@@ -15,7 +15,8 @@ func NewTempFilesystem(t *testing.T) (string, *backends.Filesystem, func()) {
 	tmp, err := ioutil.TempDir("", "github.com-kyleterry-jot")
 	require.NoError(t, err)
 
-	fs := backends.NewFilesystem(backends.FilesystemOptions{Path: tmp})
+	fs, err := backends.NewFilesystem(backends.FilesystemOptions{Path: tmp})
+	require.NoError(t, err)
 
 	return tmp, fs, func() {
 		require.NoError(t, os.RemoveAll(tmp))

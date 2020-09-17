@@ -1,6 +1,7 @@
 # github.com/cloudflare/gokey v0.1.0
 ## explicit
 github.com/cloudflare/gokey
+github.com/cloudflare/gokey/cmd/gokey
 github.com/cloudflare/gokey/rsa
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
@@ -28,6 +29,10 @@ golang.org/x/crypto/ed25519
 golang.org/x/crypto/ed25519/internal/edwards25519
 golang.org/x/crypto/hkdf
 golang.org/x/crypto/pbkdf2
+golang.org/x/crypto/ssh/terminal
+# golang.org/x/sys v0.0.0-20190626221950-04f50cda93cb
+golang.org/x/sys/unix
+golang.org/x/sys/windows
 # gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776
 ## explicit
 gopkg.in/yaml.v3

@@ -5,20 +5,50 @@ import (
 	"io"
 
 	"github.com/kyleterry/jot/pkg/auth"
-	"github.com/kyleterry/jot/pkg/config"
+	"github.com/kyleterry/jot/pkg/errors"
+	"github.com/kyleterry/jot/pkg/id"
 	"github.com/kyleterry/jot/pkg/image/backend"
-	"github.com/kyleterry/jot/pkg/jot/errors"
 	"github.com/kyleterry/jot/pkg/types"
-	"github.com/teris-io/shortid"
 )
 
+type Services interface {
+	PasswordManager() auth.PasswordManagerService
+	IDManager() id.IDManagerService
+}
+
 type Store struct {
-	cfg             *config.Config
-	storageBackend  backend.Interface
-	passwordManager auth.PasswordManager
+	services       Services
+	storageBackend backend.Interface
+}
+
+func (s *Store) stat(ctx context.Context, key string) (*backend.StatResponse, error) {
+	resp, err := s.storageBackend.Stat(ctx, key)
+	if err != nil {
+		if errors.IsStoreError(err) {
+			return nil, err
+		}
+
+		return nil, errors.NewUnknownError("failed to get file from backend").WithCause(err)
+	}
+
+	return resp, nil
+}
+
+func (s *Store) Stat(ctx context.Context, key string) (*types.GalleryFile, error) {
+	resp, err := s.stat(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.GalleryFile{Key: key, ModifiedDate: resp.ModifiedDate}, nil
 }
 
 func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error) {
+	statResp, err := s.stat(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
 	rawImages, err := s.storageBackend.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -34,25 +64,21 @@ func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error)
 	}
 
 	gallery := &types.GalleryFile{
-		Key:    key,
-		Images: images,
+		Key:          key,
+		Images:       images,
+		ModifiedDate: statResp.ModifiedDate,
 	}
 
 	return gallery, nil
 }
 
 func (s *Store) Create(ctx context.Context, images map[string]io.ReadCloser) (*types.GalleryFile, error) {
-	sid, err := shortid.New(1, shortid.DefaultABC, 2342)
+	key, err := s.services.IDManager().Generate()
 	if err != nil {
-		return nil, err
+		return nil, errors.NewUnknownError("failed to generate id").WithCause(err)
 	}
 
-	key, err := sid.Generate()
-	if err != nil {
-		return nil, err
-	}
-
-	password, err := s.passwordManager.Generate(key)
+	password, err := s.services.PasswordManager().Generate(key)
 	if err != nil {
 		return nil, errors.NewUnknownError("failed to generate password").WithCause(err)
 	}
@@ -73,10 +99,9 @@ func (s *Store) Delete(ctx context.Context, gf *types.GalleryFile) error {
 	return nil
 }
 
-func NewStore(cfg *config.Config, b backend.Interface, pm auth.PasswordManager) *Store {
+func NewStore(b backend.Interface, services Services) *Store {
 	return &Store{
-		cfg:             cfg,
-		storageBackend:  b,
-		passwordManager: pm,
+		services:       services,
+		storageBackend: b,
 	}
 }

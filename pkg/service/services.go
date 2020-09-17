@@ -7,6 +7,7 @@ import (
 
 	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
+	"github.com/kyleterry/jot/pkg/id"
 	"github.com/kyleterry/jot/pkg/image"
 	"github.com/kyleterry/jot/pkg/image/backend/filesystem"
 	"github.com/kyleterry/jot/pkg/jot"
@@ -18,12 +19,14 @@ type Services interface {
 	TextStore() text.StoreService
 	ImageStore() image.StoreService
 	PasswordManager() auth.PasswordManagerService
+	IDManager() id.IDManagerService
 }
 
 type DefaultServices struct {
-	ts text.StoreService
-	is image.StoreService
-	pm auth.PasswordManagerService
+	ts  text.StoreService
+	is  image.StoreService
+	pm  auth.PasswordManagerService
+	ids id.IDManagerService
 }
 
 func (s *DefaultServices) TextStore() text.StoreService {
@@ -36,6 +39,10 @@ func (s *DefaultServices) ImageStore() image.StoreService {
 
 func (s *DefaultServices) PasswordManager() auth.PasswordManagerService {
 	return s.pm
+}
+
+func (s *DefaultServices) IDManager() id.IDManagerService {
+	return s.ids
 }
 
 func NewDefaultServices(cfg *config.Config) (*DefaultServices, error) {
@@ -58,7 +65,15 @@ func NewDefaultServices(cfg *config.Config) (*DefaultServices, error) {
 		return nil, fmt.Errorf("failed to setup services: %w", err)
 	}
 
-	pm := auth.NewPasswordManager(cfg.MasterPassword, seed)
+	services := &DefaultServices{}
+
+	services.pm = auth.NewPasswordManager(cfg.MasterPassword, seed)
+
+	idm, err := id.NewIDManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup services: %w", err)
+	}
+	services.ids = idm
 
 	tsb, err := backends.NewFilesystem(backends.FilesystemOptions{
 		Path:                 filepath.Join(cfg.DataDir, config.TextDirectory),
@@ -69,7 +84,7 @@ func NewDefaultServices(cfg *config.Config) (*DefaultServices, error) {
 		return nil, fmt.Errorf("failed to setup text storage backend: %w", err)
 	}
 
-	ts := jot.NewStore(cfg, tsb, pm)
+	services.ts = jot.NewStore(tsb, services)
 
 	isb, err := filesystem.New(&filesystem.Config{
 		Path:                 filepath.Join(cfg.DataDir, config.ImageDirectory),
@@ -80,11 +95,7 @@ func NewDefaultServices(cfg *config.Config) (*DefaultServices, error) {
 		return nil, fmt.Errorf("failed to setup image storage backend: %w", err)
 	}
 
-	is := image.NewStore(cfg, isb, pm)
+	services.is = image.NewStore(isb, services)
 
-	return &DefaultServices{
-		ts: ts,
-		is: is,
-		pm: pm,
-	}, nil
+	return services, nil
 }

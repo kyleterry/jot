@@ -7,7 +7,7 @@ import (
 
 	"github.com/cloudflare/gokey"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/jot/errors"
+	"github.com/kyleterry/jot/pkg/errors"
 )
 
 func defaultSpec() *gokey.PasswordSpec {

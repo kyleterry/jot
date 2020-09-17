@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kyleterry/jot/pkg/jot/errors"
+	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/jot/store"
 )
 
