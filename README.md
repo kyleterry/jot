@@ -7,7 +7,7 @@ single binary. Outside a data dir and encryption seed file for password
 generation, you don't need a programming language installed or assets anywhere
 on your server.
 
-Making things even easier is a docker image that will create your seedfile for
+Making things even easier is a docker image that will create your seed file for
 you and store it in a volume mount.
 
 Jot is meant to be used heavily on the command line or within programs, but you

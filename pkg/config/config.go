@@ -1,5 +1,12 @@
 package config
 
+const (
+	TextDirectory        = "txt"
+	ImageDirectory       = "img"
+	FilePermissions      = 0640
+	DirectoryPermissions = 0740
+)
+
 type Config struct {
 	SeedFile       string `env:"JOT_SEED_FILE,required"`
 	MasterPassword string `env:"JOT_MASTER_PASSWORD,required"`

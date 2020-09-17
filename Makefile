@@ -12,7 +12,7 @@ MKDIR_P ?= mkdir -p
 
 .PHONY: all test build build-images clean
 all: test build
-test: ; GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) test -mod=vendor ./...
+test: ; $(GO) test -mod=vendor ./...
 build: $(BIN)
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -ldflags $(LDFLAGS) -a -installsuffix cgo -mod=vendor -o $(BIN) $(CMD)
 build-images: ; ./build-images

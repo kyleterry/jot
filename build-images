@@ -2,47 +2,50 @@
 
 set -euo pipefail
 
+qemu_static_version="v4.2.0-7"
 docker_repo=kyleterry/jot
-archs="amd64 arm32v7 arm64v8"
+archs="amd64 arm32v6 arm32v7 arm64v8"
+build_dir=".build"
 
 . ./build-info.sh
 
 build_images() {
-    while read HASH ARCH VARIANT; do
-        case "${ARCH}" in
+    mkdir -p "${build_dir}"
+
+    for arch in ${archs}; do
+        case "${arch}" in
             amd64   )
-                qemu_arch="x86_64"
+                image=alpine
                 variant=
+                GOARCH=
                 ;;
-            arm     )
-                qemu_arch="arm"
-                variant="${VARIANT}"
+            arm32*  )
+                image="${arch}/alpine"
+                GOARCH="arm"
                 ;;
-            arm64   )
-                qemu_arch="aarch64"
-                variant="${VARIANT}"
-                ;;
-            *       )
-                continue
+            arm64*  )
+                image="${arch}/alpine"
+                GOARCH="arm64"
                 ;;
         esac
-        docker_file=Dockerfile."${ARCH}${variant}"
+
+        GOOS=linux go build \
+            -o "${build_dir}/jot-${arch}" \
+            ./cmd/jot
+
+        GOOS=linux go build \
+            -o "${build_dir}/gokey-${arch}" \
+            ./vendor/github.com/cloudflare/gokey/cmd/gokey
+
+        chmod +x "${build_dir}"/*
+
+        docker_file="${build_dir}"/Dockerfile."${arch}"
         cp Dockerfile.cross "${docker_file}"
 
-        sed -i "s|__BASEIMAGE_HASH__|${HASH}|g" "${docker_file}"
-        sed -i "s|__QEMU_ARCH__|${qemu_arch}|g" "${docker_file}"
-        sed -i "s|__GOLANG_ARCH__|${ARCH}|g" "${docker_file}"
-        sed -i "s|__JOT_VERSION__|${VERSION}|g" "${docker_file}"
-        sed -i "s|__JOT_COMMIT__|${SHORT_COMMIT}|g" "${docker_file}"
+        sed -i "s|__IMAGE__|${image}|g" "${docker_file}"
+        sed -i "s|__ARCH__|${arch}|g" "${docker_file}"
 
-        if [ "${ARCH}" == "amd64" ]; then
-            sed -i "/__CROSS_/d" "${docker_file}"
-        else
-            sed -i "s/__CROSS_//g" "${docker_file}"
-            curl -Lfs "https://github.com/multiarch/qemu-user-static/releases/download/v3.1.0-3/x86_64_qemu-${qemu_arch}-static.tar.gz" | tar zxvf -
-        fi
-
-        version_tag="${docker_repo}":"${VERSION}"-"${ARCH}${variant}"
+        version_tag="${docker_repo}":"${VERSION}"-"${arch}"
 
         docker build -f "${docker_file}" -t "${version_tag}" .
 
@@ -51,8 +54,8 @@ build_images() {
         fi
 
         rm "${docker_file}"
-        rm -f qemu-"${qemu_arch}"-static
-    done <<< $(docker manifest inspect alpine | jq -r '.manifests[] | "\(.digest) \(.platform.architecture) \(.platform.variant)"')
+        #rm -f qemu-"${qemu_arch}"-static
+    done
 }
 
 create_manifest() {

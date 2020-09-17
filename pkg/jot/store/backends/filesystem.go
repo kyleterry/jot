@@ -10,14 +10,16 @@ import (
 	"github.com/kyleterry/jot/pkg/jot/store"
 )
 
-const DefaultPermissions = 0644
-
 type FilesystemOptions struct {
-	Path string
+	Path                 string
+	FilePermissions      os.FileMode
+	DirectoryPermissions os.FileMode
 }
 
 type Filesystem struct {
-	path string
+	path                 string
+	filePermissions      os.FileMode
+	directoryPermissions os.FileMode
 }
 
 func (fs *Filesystem) Stat(key string) (*store.StatResponse, error) {
@@ -56,7 +58,7 @@ func (fs *Filesystem) Get(key string) (*store.GetResponse, error) {
 func (fs *Filesystem) Put(key string, content io.ReadCloser) error {
 	path := filepath.Join(fs.path, key)
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, DefaultPermissions)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fs.filePermissions)
 
 	defer func() {
 		f.Close()
@@ -82,8 +84,14 @@ func (fs *Filesystem) Delete(key string) error {
 	return os.Remove(path)
 }
 
-func NewFilesystem(opts FilesystemOptions) *Filesystem {
-	return &Filesystem{
-		path: opts.Path,
+func NewFilesystem(opts FilesystemOptions) (*Filesystem, error) {
+	if err := os.MkdirAll(opts.Path, opts.DirectoryPermissions); err != nil {
+		return nil, err
 	}
+
+	return &Filesystem{
+		path:                 opts.Path,
+		filePermissions:      opts.FilePermissions,
+		directoryPermissions: opts.DirectoryPermissions,
+	}, nil
 }

@@ -12,6 +12,7 @@ const (
 	ErrorTypeNotFound
 	ErrorTypeUnknown
 	ErrorTypeETagMismatch
+	ErrorTypeInvalidKey
 )
 
 type StoreError struct {
@@ -66,5 +67,13 @@ func NewNotFoundError(key string) *StoreError {
 		Type:       ErrorTypeNotFound,
 		Message:    fmt.Sprintf("could not find jot under key: %s", key),
 		StatusCode: http.StatusNotFound,
+	}
+}
+
+func NewInvalidKeyError(key string) *StoreError {
+	return &StoreError{
+		Type:       ErrorTypeInvalidKey,
+		Message:    fmt.Sprintf("key is invalid: %s", key),
+		StatusCode: http.StatusInternalServerError,
 	}
 }

@@ -8,10 +8,9 @@ import (
 	"syscall"
 
 	"github.com/joeshaw/envdecode"
-	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/jot"
 	"github.com/kyleterry/jot/pkg/server"
+	"github.com/kyleterry/jot/pkg/service"
 )
 
 func trap(cancel context.CancelFunc, errch chan error) int {
@@ -47,38 +46,16 @@ func trap(cancel context.CancelFunc, errch chan error) int {
 func main() {
 	var cfg config.Config
 
-	err := envdecode.Decode(&cfg)
+	if err := envdecode.Decode(&cfg); err != nil {
+		log.Fatal(err)
+	}
+
+	s, err := service.NewDefaultServices(&cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	exists, err := auth.SeedFileExists(cfg.SeedFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if !exists {
-		log.Printf("seedfile is missing; attempting to create one")
-		if err := auth.MakeSeedFile(&cfg); err != nil {
-			log.Fatal(err)
-		}
-
-		log.Printf("created seedfile: %s", cfg.SeedFile)
-	}
-
-	seed, err := auth.LoadSeed(cfg.SeedFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	manager := auth.NewPasswordManager(cfg.MasterPassword, seed)
-
-	store, err := jot.NewStore(&cfg, &manager)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	srv := server.New(&cfg, store, &manager)
+	srv := server.New(&cfg, s)
 
 	ctx := context.Background()
 	cancel, errch := srv.Run(ctx)

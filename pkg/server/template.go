@@ -8,12 +8,16 @@ import (
 
 const indexTemplate = `Jot version {{ .Version }} (commit: {{ .Commit }})
 
-Usage: 
+DESCRIPTION:
+  Jot is a simple editable paste bin and image gallery. All objects return
+  a password that can be used to edit or delete them.
+
+USAGE: 
   Below examples use the curl command with -i set so we can see the headers.
 
   Creating a jot:
     Request:
-      curl -i --data-binary @textfile.txt {{ .Host }}/
+      curl -i --data-binary @textfile.txt {{ .Host }}/txt
     Response:
       HTTP/1.1 201 Created
       Jot-Password: PE4VtqnNjrK3C07
@@ -37,18 +41,28 @@ Usage:
 
   Editing a jot:
     Request:
-	  curl -i -H "If-Match: 2018-06-30T19:09:03.735647737-07:00" --data-binary @updated.txt {{ .Host }}/LIU_JPnHp?password=PE4VtqnNjrK3C07
+	  curl -i -H "If-Match: 2018-06-30T19:09:03.735647737-07:00" \
+        --data-binary @updated.txt \
+        {{ .Host }}/LIU_JPnHp?password=PE4VtqnNjrK3C07
     Response:
       HTTP/1.1 303 See Other
       Location: /LIU_JPnHp
       Date: Sat, 30 Jun 2018 19:14:26 GMT
       Content-Length: 0
 
-Make note of the Jot-Password header as that's the password used to edit
-your jot. ETag can be used in conjunction with If-None-Match and If-Match
-for caching and collision prevention on PUT.
+  Make note of the Jot-Password header as that's the password used to edit
+  your jot. ETag can be used in conjunction with If-None-Match and If-Match
+  for caching and collision prevention on PUT.
 
-Source code: https://github.com/kyleterry/jot
+  Creating an image gallery:
+    Request:
+      curl -i -T "{image1.png,image2.png}" {{ .Host }}/img
+    Response:
+      TODO
+
+ATTRIBUTION:
+  Made by: Kyle Terry (https://github.com/kyleterry)
+  Source code: https://github.com/kyleterry/jot
 `
 
 // IndexTemplateContext is the data context to render the template with for the

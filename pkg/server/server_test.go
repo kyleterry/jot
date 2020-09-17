@@ -7,11 +7,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/jot"
+	"github.com/kyleterry/jot/pkg/service"
 	"github.com/kyleterry/jot/pkg/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -24,19 +24,16 @@ func WithTestServer(t *testing.T, fn func(*httptest.Server)) {
 
 	cfg := &config.Config{
 		SeedFile:       filepath.Join(tmp, "seed"),
-		MasterPassword: "test master password",
+		MasterPassword: TestMasterPassword,
 		DataDir:        tmp,
 	}
 
-	seed, err := auth.MakeSeed(TestMasterPassword)
+	s, err := service.NewDefaultServices(cfg)
 	require.NoError(t, err)
 
-	manager := auth.NewPasswordManager(TestMasterPassword, seed)
-	store, err := jot.NewStore(cfg, &manager)
-	require.NoError(t, err)
-	s := New(cfg, store, &manager)
+	srv := New(cfg, s)
 
-	ts := httptest.NewServer(s)
+	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
 	fn(ts)
@@ -65,7 +62,7 @@ func TestJotServer(t *testing.T) {
 			)
 
 			t.Run("POST", func(t *testing.T) {
-				resp, err := client.Post(ts.URL, "text/plain", bufPayload)
+				resp, err := client.Post(ts.URL+"/txt", "text/plain", bufPayload)
 				require.NoError(t, err)
 				require.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -76,7 +73,9 @@ func TestJotServer(t *testing.T) {
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
-				jotURL, err = url.Parse(string(b))
+				u := strings.TrimSuffix(string(b), "\n")
+
+				jotURL, err = url.Parse(u)
 				require.NoError(t, err)
 			})
 
@@ -172,7 +171,10 @@ func TestJotServer(t *testing.T) {
 
 				resp, err := client.Do(req)
 				require.NoError(t, err)
-				require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+				defer resp.Body.Close()
+				body, err := ioutil.ReadAll(resp.Body)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusSeeOther, resp.StatusCode, string(body), jotURL.String())
 			})
 
 			t.Run("GET after PUT", func(t *testing.T) {
