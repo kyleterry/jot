@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -60,10 +59,9 @@ func (h jotHandler) get(w http.ResponseWriter, r *http.Request) {
 
 	defer jotFile.Content.Close()
 
-	if _, err := io.Copy(w, jotFile.Content); err != nil {
-		log.Println("failed to write content to response")
-		return
-	}
+	seeker := jotFile.Content.(io.ReadSeeker)
+
+	http.ServeContent(w, r, "", jotFile.ModifiedDate, seeker)
 }
 
 func (h jotHandler) post(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +74,7 @@ func (h jotHandler) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Jot-Password", jotFile.Password)
+	w.Header().Set("jot-password", jotFile.Password)
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(fmt.Sprintf("%s/txt/%s\n", host, jotFile.Key)))
 }
@@ -135,6 +133,28 @@ func (h jotHandler) jotPreloader(next http.Handler) http.Handler {
 	})
 }
 
+func (h jotHandler) checkModified(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead:
+			ctx := r.Context()
+			jotFile := ctx.Value(CKTextFile).(*types.TextFile)
+
+			msh := r.Header.Get("if-modified-since")
+
+			if msh != "" {
+				if !jotFile.HasBeenModified(msh) {
+					w.WriteHeader(http.StatusNotModified)
+
+					return
+				}
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // checkPreconditions checks for If-None-Match in the case of GET and If-Match
 // in the case of PUT and does a match against the Jot object's ETag (modified date).
 // If GET and the tag doesn't match, then the content is loaded; otherwise it
@@ -145,18 +165,20 @@ func (h jotHandler) checkPreconditions(next http.Handler) http.Handler {
 		jotFile := ctx.Value(CKTextFile).(*types.TextFile)
 
 		switch r.Method {
-		case http.MethodGet:
-			precondition := r.Header.Get("If-None-Match")
+		case http.MethodGet, http.MethodHead:
+			if r.Header.Get("if-modified-since") == "" {
+				precondition := r.Header.Get("if-none-match")
 
-			if precondition != "" {
-				if !jotFile.ShouldLoad(precondition) {
-					w.WriteHeader(http.StatusNotModified)
+				if precondition != "" {
+					if !jotFile.ShouldLoad(precondition) {
+						w.WriteHeader(http.StatusNotModified)
 
-					return
+						return
+					}
 				}
 			}
 		case http.MethodPut:
-			precondition := r.Header.Get("If-Match")
+			precondition := r.Header.Get("if-match")
 
 			if precondition != "" {
 				if !jotFile.ShouldWrite(precondition) {
@@ -240,6 +262,7 @@ func newJotHandler(cfg *config.Config, services textServices) *jotHandler {
 	authenticated := NewMiddleware((*h).authentication)
 	jotLoaded := NewMiddleware(
 		(*h).jotPreloader,
+		// (*h).checkModified,
 		(*h).checkPreconditions,
 		(*h).withJotLoaded,
 	)

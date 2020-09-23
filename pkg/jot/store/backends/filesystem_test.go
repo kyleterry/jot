@@ -19,7 +19,7 @@ func (cb *NoopCloseBuffer) Close() error {
 }
 
 func TestFilesystemPut(t *testing.T) {
-	tmpdir, fs, cleanup := testutil.NewTempFilesystem(t)
+	tmpdir, fs, cleanup := testutil.NewTextFilesystem(t)
 	defer cleanup()
 
 	key := "abc123"
@@ -33,7 +33,7 @@ func TestFilesystemPut(t *testing.T) {
 }
 
 func TestFilesystemStat(t *testing.T) {
-	_, fs, cleanup := testutil.NewTempFilesystem(t)
+	_, fs, cleanup := testutil.NewTextFilesystem(t)
 	defer cleanup()
 
 	key := "abc123"
@@ -49,7 +49,7 @@ func TestFilesystemStat(t *testing.T) {
 }
 
 func TestFilesystemGet(t *testing.T) {
-	_, fs, cleanup := testutil.NewTempFilesystem(t)
+	_, fs, cleanup := testutil.NewTextFilesystem(t)
 	defer cleanup()
 
 	key := "abc123"
@@ -68,7 +68,7 @@ func TestFilesystemGet(t *testing.T) {
 }
 
 func TestFilesystemDelete(t *testing.T) {
-	tmpdir, fs, cleanup := testutil.NewTempFilesystem(t)
+	tmpdir, fs, cleanup := testutil.NewTextFilesystem(t)
 	defer cleanup()
 
 	key := "abc123"

@@ -2,18 +2,10 @@ Jot
 ===
 
 Jot is a simple and editable pastebin that's super easy to host yourself. It
-doesn't require installation of large dependancies and everything runs from a
+doesn't require installation of large dependencies and everything runs from a
 single binary. Outside a data dir and encryption seed file for password
 generation, you don't need a programming language installed or assets anywhere
 on your server.
-
-Making things even easier is a docker image that will create your seed file for
-you and store it in a volume mount.
-
-Jot is meant to be used heavily on the command line or within programs, but you
-can also use it to quickly share a text file (like code or configuration) with a
-friend. There is no web interface outside a help manual returned from a `GET`
-request to `/`.
 
 ## Features
 
@@ -34,35 +26,55 @@ CRUD operations defined below:
 - `DELETE` to `JOT_URL` with `?password=<Jot-Password value>` and you will delete
   the jot.
 
-## Building and installing
+## Endpoints
 
-Building jot requires Go 1.10 (but no vendoring is included) or Go 1.11 with
-module support enabled.
+`GET /`: help text
 
-A simple `make` will build jot, storing a resulting binary in `bin`
+`POST /txt`: create a text jot
 
-You can build the docker image with `make build-docker` which will yield a
-container tagged `kyleterry/jot:latest`.
+`GET /txt/<id>`: get a text jot
 
-## Running
+`PUT /txt/<id>?password=<password>`: edit a text jot
+
+`DELETE /txt/<id>?password=<password>`: delete a text jot
+
+`POST /img`: upload an image
+
+`GET /img/<id>`: get an image
+
+`DELETE /img/<id>?password=<password>`: delete an image
+
+## Building and Running
+
+Requires: Go >=1.14
 
 Running from localhost is simple. Below describes the minimal effort that goes
 into running Jot:
 
 ```
-mkdir -p ${HOME}/.config/jot
-mkdir -p ${HOME}/.local/share/jot
-mkdir -p ${HOME}/src
+# setup the source code dir
+export JOT_HOME="${HOME}/code/jot"
+mkdir -p "${JOT_HOME}"
+git clone https://github.com/kyleterry/jot "${JOT_HOME}"
 
-export JOT_SEED_FILE=${HOME}/.config/jot/seed
-export JOT_DATA_DIR=${HOME}/.local/share/jot
+# these two are for config and data storage
+mkdir -p "${HOME}/.config/jot"
+mkdir -p "${HOME}/.local/share/jot"
+
+# export the configuration for the jot proc
 export JOT_MASTER_PASSWORD="please change this, this is your master password (also don't lose it)"
+export JOT_SEED_FILE="${HOME}/.config/jot/seed"
+export JOT_DATA_DIR="${HOME}/.local/share/jot"
 
-cd ${HOME}/src
-git clone https://github.com/kyleterry/jot
-cd jot
-GO111MODULE=on make
-./bin/jot
+cd "${JOT_HOME}"
+
+# generate the seed file encrypted with the master password
+go run ./vendor/github.com/cloudflare/gokey/cmd/gokey -p "${JOT_MASTER_PASSWORD}" -t seed -o "${JOT_SEED_FILE}"
+
+# build and run jot
+go build ./cmd/jot
+
+./jot
 
 curl http://localhost:8095
 ```

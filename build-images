@@ -16,24 +16,27 @@ build_images() {
         case "${arch}" in
             amd64   )
                 image=alpine
-                variant=
                 GOARCH=
                 ;;
             arm32*  )
-                image="${arch}/alpine"
+                #image="${arch}/alpine"
+                image=alpine
                 GOARCH="arm"
                 ;;
             arm64*  )
-                image="${arch}/alpine"
+                #image="${arch}/alpine"
+                image=alpine
                 GOARCH="arm64"
                 ;;
         esac
 
-        GOOS=linux go build \
+        GOOS=linux CGO_ENABLED=0 go build \
+            -installsuffix cgo \
             -o "${build_dir}/jot-${arch}" \
             ./cmd/jot
 
-        GOOS=linux go build \
+        GOOS=linux CGO_ENABLED=0 go build \
+            -installsuffix cgo \
             -o "${build_dir}/gokey-${arch}" \
             ./vendor/github.com/cloudflare/gokey/cmd/gokey
 
@@ -44,6 +47,7 @@ build_images() {
 
         sed -i "s|__IMAGE__|${image}|g" "${docker_file}"
         sed -i "s|__ARCH__|${arch}|g" "${docker_file}"
+        sed -i "s|__PLATFORM__|linux/${arch}|g" "${docker_file}"
 
         version_tag="${docker_repo}":"${VERSION}"-"${arch}"
 
@@ -53,7 +57,7 @@ build_images() {
             docker push "${version_tag}"
         fi
 
-        rm "${docker_file}"
+        #rm "${docker_file}"
         #rm -f qemu-"${qemu_arch}"-static
     done
 }

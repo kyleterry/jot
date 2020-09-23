@@ -1,10 +1,11 @@
-pipeline:
-  build:
-    image: plugins/docker
-    repo: kyleterry/jot
-    secrets: [ docker_username, docker_password ]
-    custom_dns: [ 1.1.1.1, 8.8.8.8 ]
-    auto_tag: true
-    when:
-      branch: master
-      event: [ push, pull_request, tag ]
+kind: pipeline
+type: kubernetes
+name: default
+
+steps:
+- name: test
+  image: golang:1.15
+  commands:
+  - go build ./cmd/jot
+  - go test -v ./...
+

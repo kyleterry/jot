@@ -1,10 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -62,7 +62,7 @@ func (h *imageHandler) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Jot-Password", g.Password)
+	w.Header().Set("jot-password", g.Password)
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(fmt.Sprintf("%s/img/%s\n", host, g.Key)))
 
@@ -97,17 +97,17 @@ func (h *imageHandler) get(w http.ResponseWriter, r *http.Request) {
 	gallery := ctx.Value(CKImageGallery).(*types.GalleryFile)
 
 	w.Header().Set("etag", gallery.ModifiedDate.Format(time.RFC3339Nano))
+	w.Header().Set("last-modified", gallery.ModifiedDate.Format(http.TimeFormat))
 
 	defer gallery.Close()
 
 	for _, image := range gallery.Images {
-		w.Header().Set("content-disposition", fmt.Sprintf("filename=%s", image.Name))
+		buf := bytes.Buffer{}
+		buf.ReadFrom(image.Content)
 
-		if _, err := io.Copy(w, image.Content); err != nil {
-			log.Println("failed to write content to response")
+		seeker := bytes.NewReader(buf.Bytes())
 
-			return
-		}
+		http.ServeContent(w, r, image.Name, gallery.ModifiedDate, seeker)
 
 		return
 	}
@@ -163,13 +163,15 @@ func (h imageHandler) checkPreconditions(next http.Handler) http.Handler {
 
 		switch r.Method {
 		case http.MethodGet:
-			precondition := r.Header.Get("If-None-Match")
+			if r.Header.Get("if-modified-since") == "" {
+				precondition := r.Header.Get("If-None-Match")
 
-			if precondition != "" {
-				if !gallery.ShouldLoad(precondition) {
-					w.WriteHeader(http.StatusNotModified)
+				if precondition != "" {
+					if !gallery.ShouldLoad(precondition) {
+						w.WriteHeader(http.StatusNotModified)
 
-					return
+						return
+					}
 				}
 			}
 		}

@@ -19,7 +19,7 @@ import (
 const TestMasterPassword = "test password"
 
 func WithTestServer(t *testing.T, fn func(*httptest.Server)) {
-	tmp, _, cleanup := testutil.NewTempFilesystem(t)
+	tmp, _, cleanup := testutil.NewTextFilesystem(t)
 	defer cleanup()
 
 	cfg := &config.Config{
@@ -56,9 +56,10 @@ func TestJotServer(t *testing.T) {
 			bufUpdatePayload := bytes.NewBufferString(c.updatePayload)
 
 			var (
-				jotURL      *url.URL
-				jotPassword string
-				jotETag     string
+				jotURL          *url.URL
+				jotPassword     string
+				jotETag         string
+				jotLastModified string
 			)
 
 			t.Run("POST", func(t *testing.T) {
@@ -87,6 +88,35 @@ func TestJotServer(t *testing.T) {
 
 				require.NotEmpty(t, resp.Header.Get("ETag"), "etag is missing")
 				jotETag = resp.Header.Get("ETag")
+				jotLastModified = resp.Header.Get("Last-Modified")
+
+				b, err := ioutil.ReadAll(resp.Body)
+				require.NoError(t, err)
+				defer resp.Body.Close()
+
+				require.Equal(t, c.payload, string(b))
+			})
+
+			t.Run("GET with modified check", func(t *testing.T) {
+				req, err := http.NewRequest("GET", jotURL.String(), nil)
+				require.NoError(t, err)
+
+				req.Header.Set("if-modified-since", jotLastModified)
+
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusNotModified, resp.StatusCode)
+			})
+
+			t.Run("GET with old last modified", func(t *testing.T) {
+				req, err := http.NewRequest("GET", jotURL.String(), nil)
+				require.NoError(t, err)
+
+				req.Header.Set("if-modified-since", "Thu, 17 Sep 2020 20:27:38 GMT")
+
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, resp.StatusCode)
 
 				b, err := ioutil.ReadAll(resp.Body)
 				require.NoError(t, err)

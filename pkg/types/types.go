@@ -2,8 +2,20 @@ package types
 
 import (
 	"io"
+	"net/http"
 	"time"
 )
+
+type Modifiable interface {
+	ModifiedSince(timestamp string) bool
+}
+
+type Taggable interface {
+	ETag() string
+	ETagMatches(compare string) bool
+	ShouldLoad(etag string) bool
+	ShouldWrite(etag string) bool
+}
 
 type TextFile struct {
 	Key          string
@@ -28,6 +40,12 @@ func (f TextFile) ShouldWrite(etag string) bool {
 	return f.ETagMatches(etag)
 }
 
+func (f TextFile) HasBeenModified(timestamp string) bool {
+	modified := f.ModifiedDate.Format(http.TimeFormat)
+
+	return timestamp == modified
+}
+
 type ImageData struct {
 	Name    string
 	Content io.ReadCloser
@@ -50,6 +68,16 @@ func (f GalleryFile) ETagMatches(compare string) bool {
 
 func (f GalleryFile) ShouldLoad(etag string) bool {
 	return !f.ETagMatches(etag)
+}
+
+func (f GalleryFile) ShouldWrite(etag string) bool {
+	return f.ETagMatches(etag)
+}
+
+func (f GalleryFile) HasBeenModified(timestamp string) bool {
+	modified := f.ModifiedDate.Format(http.TimeFormat)
+
+	return timestamp == modified
 }
 
 func (f GalleryFile) Close() error {

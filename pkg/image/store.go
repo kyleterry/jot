@@ -96,6 +96,10 @@ func (s *Store) Create(ctx context.Context, images map[string]io.ReadCloser) (*t
 }
 
 func (s *Store) Delete(ctx context.Context, gf *types.GalleryFile) error {
+	if err := s.storageBackend.Delete(ctx, gf.Key); err != nil {
+		return errors.NewUnknownError("failed to delete gallery from backend").WithCause(err)
+	}
+
 	return nil
 }
 
