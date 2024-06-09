@@ -5,14 +5,12 @@ import (
 	"net/http"
 
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/jot"
 	"github.com/kyleterry/jot/pkg/version"
 )
 
 // indexHandler handles requests to the / endpoint
 type indexHandler struct {
-	store *jot.JotStore
-	cfg   *config.Config
+	cfg *config.Config
 }
 
 func (h indexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -69,7 +69,8 @@ export JOT_DATA_DIR="${HOME}/.local/share/jot"
 cd "${JOT_HOME}"
 
 # generate the seed file encrypted with the master password
-go run ./vendor/github.com/cloudflare/gokey/cmd/gokey -p "${JOT_MASTER_PASSWORD}" -t seed -o "${JOT_SEED_FILE}"
+go install github.com/cloudflare/gokey/cmd/gokey 
+gokey -p "${JOT_MASTER_PASSWORD}" -t seed -o "${JOT_SEED_FILE}"
 
 # build and run jot
 go build ./cmd/jot

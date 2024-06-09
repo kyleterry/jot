@@ -1,6 +1,7 @@
 # vim: ft=dockerfile
-FROM --platform=__PLATFORM__ __IMAGE__
-RUN apk --no-cache add bash
+ARG ARCH=__ARCH__
+FROM __IMAGE__
+LABEL org.opencontainers.image.source https://github.com/kyleterry/jot
 COPY .build/jot-__ARCH__ /bin/jot
 COPY .build/gokey-__ARCH__ /bin/gokey
 COPY docker-entrypoint.sh /

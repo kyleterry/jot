@@ -1,9 +1,15 @@
 package image
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"image/jpeg"
+	"image/png"
 	"io"
+	"io/ioutil"
 
+	"github.com/disintegration/imageorient"
 	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/id"
@@ -83,6 +89,10 @@ func (s *Store) Create(ctx context.Context, images map[string]io.ReadCloser) (*t
 		return nil, errors.NewUnknownError("failed to generate password").WithCause(err)
 	}
 
+	if err := s.processImages(images); err != nil {
+		return nil, errors.NewUnknownError("failed to process images").WithCause(err)
+	}
+
 	if err := s.storageBackend.Create(ctx, key, images); err != nil {
 		return nil, err
 	}
@@ -98,6 +108,36 @@ func (s *Store) Create(ctx context.Context, images map[string]io.ReadCloser) (*t
 func (s *Store) Delete(ctx context.Context, gf *types.GalleryFile) error {
 	if err := s.storageBackend.Delete(ctx, gf.Key); err != nil {
 		return errors.NewUnknownError("failed to delete gallery from backend").WithCause(err)
+	}
+
+	return nil
+}
+
+func (s *Store) processImages(images map[string]io.ReadCloser) error {
+	for k, r := range images {
+		img, format, err := imageorient.Decode(r)
+		if err != nil {
+			return fmt.Errorf("failed to decode image: %w", err)
+		}
+
+		r.Close()
+
+		buf := bytes.Buffer{}
+
+		switch format {
+		case "jpeg":
+			if err := jpeg.Encode(&buf, img, nil); err != nil {
+				return fmt.Errorf("failed to encode image: %w", err)
+			}
+		case "png":
+			if err := png.Encode(&buf, img); err != nil {
+				return fmt.Errorf("failed to encode image: %w", err)
+			}
+		}
+
+		r = ioutil.NopCloser(&buf)
+
+		images[k] = r
 	}
 
 	return nil

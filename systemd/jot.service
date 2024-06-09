@@ -1,0 +1,14 @@
+[Unit]
+Description=jot: text and image sharing server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/state/jot
+EnvironmentFile=-%h/.config/jot/jot.env
+Restart=always
+RestartSec=2
+ExecStart=%h/.local/bin/jot
+
+[Install]
+WantedBy=default.target

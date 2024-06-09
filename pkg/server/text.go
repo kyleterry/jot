@@ -230,7 +230,13 @@ func (h jotHandler) authentication(next http.Handler) http.Handler {
 			return
 		}
 
-		supplied := r.URL.Query().Get("password")
+		_, supplied, ok := r.BasicAuth()
+
+		if !ok || supplied == "" {
+			// query parameter is deprecated and will be removed soon
+			supplied = r.URL.Query().Get("password")
+		}
+
 		success, err := h.services.PasswordManager().IsMatch(key, supplied)
 		if err != nil {
 			err := errors.NewUnknownError("password manager failed").WithCause(err)

@@ -2,87 +2,13 @@ package server
 
 import (
 	"bytes"
-	"html/template"
+	_ "embed"
 	"net/http"
+	"text/template"
 )
 
-const indexTemplate = `Jot version {{ .Version }} (commit: {{ .Commit }})
-
-DESCRIPTION:
-  Jot is a simple editable paste bin and image gallery. All objects return
-  a password that can be used to edit or delete them.
-
-USAGE: 
-  Below examples use the curl command with -i set so we can see the headers.
-
-  Creating a jot:
-    Request:
-      curl -i --data-binary @textfile.txt {{ .Host }}/txt
-    Response:
-      HTTP/1.1 201 Created
-      Jot-Password: PE4VtqnNjrK3C07
-      Date: Sat, 30 Jun 2018 19:09:03 GMT
-      Content-Length: 32
-      Content-Type: text/plain; charset=utf-8
-
-      {{ .Host }}/txt/LIU_JPnHp
-
-  Getting a jot:
-    Request:
-      curl -i {{ .Host }}/txt/LIU_JPnHp
-	Response:
-	  HTTP/1.1 200 OK
-      Content-Type: text/plain; charset=utf-8
-      Etag: 2018-06-30T19:09:03.735647737-07:00
-      Date: Sat, 30 Jun 2018 19:10:13 GMT
-      Content-Length: 38
-
-	  here is my content from textfile.txt!
-
-  Editing a jot:
-    Request:
-	  curl -i -H "If-Match: 2018-06-30T19:09:03.735647737-07:00" \
-        --data-binary @updated.txt \
-        {{ .Host }}/txt/LIU_JPnHp?password=PE4VtqnNjrK3C07
-    Response:
-      HTTP/1.1 303 See Other
-      Location: /txt/LIU_JPnHp
-      Date: Sat, 30 Jun 2018 19:14:26 GMT
-      Content-Length: 0
-
-  Uploading an image:
-    Request:
-      curl -i -F "image=chicken.png" {{ .Host }}/img
-    Response:
-      HTTP/1.1 100 Continue
-      HTTP/1.1 201 Created
-      Jot-Password: KQ25tPunmRvDhgT
-      Date: Thu, 15 Sep 2020 17:08:39 GMT
-      Content-Length: 36
-      Content-Type: text/plain; charset=utf-8
-
-      {{ .Host }}/img/PPbQ9lZYM
-
-  Getting an image:
-    Requests can be made in a browser which will automatically display the
-    image, or with a cli client like curl:
-
-    Request:
-      curl -OJs -w "fetched image: %{filename_effective}\n" {{ .Host }}/img/PPbQ9lZYM
-    Response:
-      fetched image: chicken.png
-
-  Headers:
-    Make note of the Jot-Password header as that's the password used to edit
-    your jot and delete images.
-
-    ETag can be used in conjunction with If-None-Match and If-Match
-    for caching on GET and collision prevention on PUT.
-
-ATTRIBUTION:
-  Made by: Kyle Terry (https://github.com/kyleterry)
-  Source code: https://github.com/kyleterry/jot
-`
+//go:embed index.txt
+var indexTemplate string
 
 // IndexTemplateContext is the data context to render the template with for the
 // index response.

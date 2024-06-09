@@ -47,8 +47,9 @@ func (f TextFile) HasBeenModified(timestamp string) bool {
 }
 
 type ImageData struct {
-	Name    string
-	Content io.ReadCloser
+	Name        string
+	Content     io.ReadCloser
+	Description string
 }
 
 type GalleryFile struct {

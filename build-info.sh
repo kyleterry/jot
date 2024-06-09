@@ -11,4 +11,7 @@ else
     VERSION="${SHORT_COMMIT}${DIRTY}"
 fi
 
+DIRTY=
+VERSION="2.0.14-5"
+
 BUILD_TIME=$(date -u '+%Y-%m-%d %I:%M:%S %Z')

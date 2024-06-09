@@ -10,9 +10,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/handlers"
-	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/jot"
 	"github.com/kyleterry/jot/pkg/service"
 )
 
@@ -32,8 +30,8 @@ const (
 )
 
 const (
-	//DefaultContentType is the default content type to use in responses that
-	//return the jot content
+	// DefaultContentType is the default content type to use in responses that
+	// return the jot content
 	DefaultContentType = "text/plain; charset=utf-8"
 )
 
@@ -41,12 +39,7 @@ const (
 // and uses gorilla/mux to route requests to HTTP handlers.
 type Server struct {
 	services service.Services
-	manager  *auth.PasswordManager
-	store    *jot.JotStore
 	cfg      *config.Config
-
-	txtHandler http.Handler
-	imgHandler http.Handler
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +57,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// TODO fill out constructor args
 		next = newImageHandler(s.cfg, s.services)
 	case "":
-		next = indexHandler{s.store, s.cfg}
+		next = indexHandler{cfg: s.cfg}
 	default:
 		next = http.HandlerFunc(http.NotFound)
 	}

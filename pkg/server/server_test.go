@@ -187,9 +187,7 @@ func TestJotServer(t *testing.T) {
 				// make sure we can update if the precondition modified date matches
 				req.Header.Set("if-match", jotETag)
 
-				q := req.URL.Query()
-				q.Add("password", jotPassword)
-				req.URL.RawQuery = q.Encode()
+				req.SetBasicAuth("", jotPassword)
 
 				// we want to make sure the correct reponse redirect happens, so we
 				// tell the client not to follow redirects so we can check the actual
@@ -231,9 +229,7 @@ func TestJotServer(t *testing.T) {
 				// make sure we can update if the precondition modified date matches
 				req.Header.Set("if-match", "2001-01-01T00:00:00Z")
 
-				q := req.URL.Query()
-				q.Add("password", jotPassword)
-				req.URL.RawQuery = q.Encode()
+				req.SetBasicAuth("", jotPassword)
 
 				resp, err := client.Do(req)
 				require.NoError(t, err)
@@ -247,9 +243,7 @@ func TestJotServer(t *testing.T) {
 				// make sure we can update if the precondition modified date matches
 				req.Header.Set("if-match", jotETag)
 
-				q := req.URL.Query()
-				q.Add("password", "wrongpassword")
-				req.URL.RawQuery = q.Encode()
+				req.SetBasicAuth("", "wrongpassword")
 
 				resp, err := client.Do(req)
 				require.NoError(t, err)
@@ -260,9 +254,7 @@ func TestJotServer(t *testing.T) {
 				req, err := http.NewRequest("DELETE", jotURL.String(), nil)
 				require.NoError(t, err)
 
-				q := req.URL.Query()
-				q.Add("password", jotPassword)
-				req.URL.RawQuery = q.Encode()
+				req.SetBasicAuth("", jotPassword)
 
 				resp, err := client.Do(req)
 				require.NoError(t, err)

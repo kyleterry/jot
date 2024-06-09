@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kyleterry/jot/pkg/config"
@@ -42,18 +43,26 @@ func (h *imageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *imageHandler) post(w http.ResponseWriter, r *http.Request) {
 	host := extractHost(h.cfg, r)
 
-	r.ParseMultipartForm(10 << 20)
-
-	file, handler, err := r.FormFile("image")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusExpectationFailed)
 
 		return
 	}
 
 	images := map[string]io.ReadCloser{}
 
-	images[handler.Filename] = file
+	imageFileHeaders := r.MultipartForm.File["images"]
+
+	for _, header := range imageFileHeaders {
+		file, err := header.Open()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+
+			return
+		}
+
+		images[header.Filename] = file
+	}
 
 	g, err := h.services.ImageStore().Create(r.Context(), images)
 	if err != nil {
@@ -65,31 +74,6 @@ func (h *imageHandler) post(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("jot-password", g.Password)
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(fmt.Sprintf("%s/img/%s\n", host, g.Key)))
-
-	// r.Body = http.MaxBytesReader(w, r.Body, int64(MaxFileSize))
-	// // err := r.ParseMultipartForm(int64(MaxFileSize))
-	// // if err != nil {
-	// // 	http.Error(w, err.Error(), http.StatusExpectationFailed)
-	// // 	return
-	// // }
-
-	// mp, err := r.MultipartReader()
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusExpectationFailed)
-	// 	return
-	// }
-
-	// // part, err := mp.NextPart()
-	// // if err != nil {
-	// // 	http.Error(w, err.Error(), http.StatusExpectationFailed)
-	// // 	return
-	// // }
-
-	// f, err := mp.ReadForm(int64(MaxFileSize))
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusExpectationFailed)
-	// 	return
-	// }
 }
 
 func (h *imageHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -101,16 +85,31 @@ func (h *imageHandler) get(w http.ResponseWriter, r *http.Request) {
 
 	defer gallery.Close()
 
-	for _, image := range gallery.Images {
-		buf := bytes.Buffer{}
-		buf.ReadFrom(image.Content)
-
-		seeker := bytes.NewReader(buf.Bytes())
-
-		http.ServeContent(w, r, image.Name, gallery.ModifiedDate, seeker)
+	_, tail := shiftPath(r.URL.Path)
+	if tail == "" || tail == "/" {
+		galleryPage(gallery).Render(ctx, w)
 
 		return
 	}
+
+	tail = strings.TrimPrefix(tail, "/")
+
+	for _, image := range gallery.Images {
+		if image.Name == tail {
+			w.Header().Set("content-disposition", fmt.Sprintf("filename=\"%s\"", image.Name))
+
+			buf := bytes.Buffer{}
+			buf.ReadFrom(image.Content)
+
+			seeker := bytes.NewReader(buf.Bytes())
+
+			http.ServeContent(w, r, image.Name, gallery.ModifiedDate, seeker)
+
+			return
+		}
+	}
+
+	http.NotFound(w, r)
 }
 
 func (h *imageHandler) delete(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,10 @@ import (
 	"github.com/kyleterry/jot/pkg/errors"
 )
 
+// WriteError takes an error and writes its text to the http response and sets
+// the status code. If the err is an errors.StorageError, then the status code
+// is extracted from the StatusCode field. Otherwise an
+// http.StatusInternalServerError is used.
 func WriteError(err error, w http.ResponseWriter) {
 	if storeErr, ok := err.(*errors.StoreError); ok {
 		for _, cause := range storeErr.Causes {

@@ -2,9 +2,10 @@
 
 set -euo pipefail
 
-qemu_static_version="v4.2.0-7"
-docker_repo=kyleterry/jot
-archs="amd64 arm32v6 arm32v7 arm64v8"
+docker_repo=ghcr.io/kyleterry/jot
+docker_cmd=buildah
+base_image=docker.io/alpine:latest
+archs="amd64 arm32v7 arm64v8"
 build_dir=".build"
 
 . ./build-info.sh
@@ -13,52 +14,46 @@ build_images() {
     mkdir -p "${build_dir}"
 
     for arch in ${archs}; do
+        goarch=
+        bud_args=
+
         case "${arch}" in
-            amd64   )
-                image=alpine
-                GOARCH=
+            arm64v*  )
+                goarch="arm64"
+                bud_args="--override-arch=arm64 --variant=v8"
                 ;;
-            arm32*  )
-                #image="${arch}/alpine"
-                image=alpine
-                GOARCH="arm"
-                ;;
-            arm64*  )
-                #image="${arch}/alpine"
-                image=alpine
-                GOARCH="arm64"
+            arm32v*  )
+                goarch="arm"
+                bud_args="--override-arch=arm --variant=v7"
                 ;;
         esac
 
-        GOOS=linux CGO_ENABLED=0 go build \
+        GOOS=linux GOARCH="${goarch:-}" CGO_ENABLED=0 go build \
             -installsuffix cgo \
             -o "${build_dir}/jot-${arch}" \
             ./cmd/jot
 
-        GOOS=linux CGO_ENABLED=0 go build \
+        GOOS=linux GOARCH="${goarch}" CGO_ENABLED=0 go build \
             -installsuffix cgo \
             -o "${build_dir}/gokey-${arch}" \
-            ./vendor/github.com/cloudflare/gokey/cmd/gokey
+            github.com/cloudflare/gokey/cmd/gokey
 
         chmod +x "${build_dir}"/*
 
         docker_file="${build_dir}"/Dockerfile."${arch}"
         cp Dockerfile.cross "${docker_file}"
 
-        sed -i "s|__IMAGE__|${image}|g" "${docker_file}"
+        sed -i "s|__IMAGE__|${base_image}|g" "${docker_file}"
         sed -i "s|__ARCH__|${arch}|g" "${docker_file}"
         sed -i "s|__PLATFORM__|linux/${arch}|g" "${docker_file}"
 
         version_tag="${docker_repo}":"${VERSION}"-"${arch}"
 
-        docker build -f "${docker_file}" -t "${version_tag}" .
+        ${docker_cmd} bud ${bud_args:-} -f "${docker_file}" -t "${version_tag}" .
 
-        if [ -z "${DIRTY}" ]; then
-            docker push "${version_tag}"
-        fi
-
-        #rm "${docker_file}"
-        #rm -f qemu-"${qemu_arch}"-static
+        # if [ -z "${DIRTY}" ]; then
+        #     ${docker_cmd} push "${version_tag}"
+        # fi
     done
 }
 
@@ -66,10 +61,13 @@ create_manifest() {
     local version
     version="${1}"
 
-    manifest-tool push from-args \
-        --platforms linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8 \
-        --template kyleterry/jot:"${version}"-ARCHVARIANT \
-        --target kyleterry/jot:"${version}"
+    tag="${docker_repo}":"${version}"
+
+    ${docker_cmd} manifest create "${tag}"
+    ${docker_cmd} manifest add "${tag}" "${tag}"-amd64 
+    ${docker_cmd} manifest add "${tag}" "${tag}"-arm32v7 
+    ${docker_cmd} manifest add "${tag}" "${tag}"-arm64v8
+    ${docker_cmd} manifest push --all "${tag}" docker://"${tag}"
 }
 
 build_images

@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/ash
 
-set -Eeo pipefail
+set -euo pipefail
 
 export JOT_DATA_DIR="${JOT_DATA_DIR:-/var/lib/jot}"
 export JOT_SEED_FILE="${JOT_SEED_FILE:-/etc/jot/seed}"
