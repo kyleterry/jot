@@ -1,7 +1,6 @@
 package testutil
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -10,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// NewTempFilesystem returns a backends.Filesystem configured with a temporary
+// NewTextFilesystem returns a backends.Filesystem configured with a temporary
 // directory and a cleanup callback function.
 func NewTextFilesystem(t *testing.T) (string, *backends.Filesystem, func()) {
-	tmp, err := ioutil.TempDir("", "github.com-kyleterry-jot")
+	tmp, err := os.MkdirTemp("", "github.com-kyleterry-jot")
 	require.NoError(t, err)
 
 	fs, err := backends.NewFilesystem(backends.FilesystemOptions{

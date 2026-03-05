@@ -54,7 +54,7 @@ func (s *Store) Stat(ctx context.Context, key string) (*types.GalleryFile, error
 		return nil, err
 	}
 
-	return &types.GalleryFile{ID: key, ModifiedDate: resp.ModifiedDate}, nil
+	return &types.GalleryFile{ID: key, ObjectMeta: types.ObjectMeta{ModifiedDate: resp.ModifiedDate}}, nil
 }
 
 func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error) {
@@ -69,9 +69,9 @@ func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error)
 	}
 
 	gallery := &types.GalleryFile{
-		ID:           key,
-		Images:       images,
-		ModifiedDate: statResp.ModifiedDate,
+		ID:         key,
+		Images:     images,
+		ObjectMeta: types.ObjectMeta{ModifiedDate: statResp.ModifiedDate},
 	}
 
 	return gallery, nil

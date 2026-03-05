@@ -30,10 +30,8 @@ var BoundProviderSet = wire.NewSet(
 )
 
 const (
-	filePermissions      = 0o640
-	directoryPermissions = 0o740
-	directoryName        = "img"
-	galleryFileName      = "gallery"
+	directoryName   = "img"
+	galleryFileName = "gallery"
 )
 
 type Options struct {
@@ -120,13 +118,13 @@ func (b *Backend) Create(ctx context.Context, id string, images *types.Images) e
 	}()
 
 	dir := filepath.Join(b.path, id)
-	if err := os.Mkdir(dir, directoryPermissions); err != nil {
+	if err := os.Mkdir(dir, config.DirectoryPermissions); err != nil {
 		return err
 	}
 
 	fp := filepath.Join(dir, galleryFileName)
 
-	galleryFile, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermissions)
+	galleryFile, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, config.FilePermissions)
 	if err != nil {
 		return err
 	}
@@ -159,7 +157,7 @@ func (b *Backend) Delete(ctx context.Context, id string) error {
 
 func New(opts *Options) (*Backend, error) {
 	store := filepath.Join(directoryName, string(opts.StorageDir))
-	if err := os.MkdirAll(store, directoryPermissions); err != nil {
+	if err := os.MkdirAll(store, config.DirectoryPermissions); err != nil {
 		return nil, err
 	}
 

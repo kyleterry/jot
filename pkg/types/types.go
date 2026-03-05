@@ -7,44 +7,37 @@ import (
 	"time"
 )
 
-type Modifiable interface {
-	ModifiedSince(timestamp string) bool
-}
-
-type Taggable interface {
-	ETag() string
-	ETagMatches(compare string) bool
-	ShouldLoad(etag string) bool
-	ShouldWrite(etag string) bool
-}
-
-type TextFile struct {
-	Key          string
-	Content      io.ReadCloser
-	Password     string
+// ObjectMeta holds modification time and provides ETag and cache-control
+// methods shared by all stored objects.
+type ObjectMeta struct {
 	ModifiedDate time.Time
 }
 
-func (f TextFile) ETag() string {
-	return f.ModifiedDate.Format(time.RFC3339Nano)
+func (m ObjectMeta) ETag() string {
+	return m.ModifiedDate.Format(time.RFC3339Nano)
 }
 
-func (f TextFile) ETagMatches(compare string) bool {
-	return compare == f.ETag()
+func (m ObjectMeta) ETagMatches(compare string) bool {
+	return compare == m.ETag()
 }
 
-func (f TextFile) ShouldLoad(etag string) bool {
-	return !f.ETagMatches(etag)
+func (m ObjectMeta) ShouldLoad(etag string) bool {
+	return !m.ETagMatches(etag)
 }
 
-func (f TextFile) ShouldWrite(etag string) bool {
-	return f.ETagMatches(etag)
+func (m ObjectMeta) ShouldWrite(etag string) bool {
+	return m.ETagMatches(etag)
 }
 
-func (f TextFile) HasBeenModified(timestamp string) bool {
-	modified := f.ModifiedDate.Format(http.TimeFormat)
+func (m ObjectMeta) HasBeenModified(timestamp string) bool {
+	return timestamp == m.ModifiedDate.Format(http.TimeFormat)
+}
 
-	return timestamp == modified
+type TextFile struct {
+	Key      string
+	Content  io.ReadCloser
+	Password string
+	ObjectMeta
 }
 
 type textFileKey struct{}
@@ -79,32 +72,10 @@ func (i *Images) Add(key string, value *ImageData) {
 }
 
 type GalleryFile struct {
-	ID           string
-	Images       *Images
-	Password     string
-	ModifiedDate time.Time
-}
-
-func (f GalleryFile) ETag() string {
-	return f.ModifiedDate.Format(time.RFC3339Nano)
-}
-
-func (f GalleryFile) ETagMatches(compare string) bool {
-	return compare == f.ETag()
-}
-
-func (f GalleryFile) ShouldLoad(etag string) bool {
-	return !f.ETagMatches(etag)
-}
-
-func (f GalleryFile) ShouldWrite(etag string) bool {
-	return f.ETagMatches(etag)
-}
-
-func (f GalleryFile) HasBeenModified(timestamp string) bool {
-	modified := f.ModifiedDate.Format(http.TimeFormat)
-
-	return timestamp == modified
+	ID       string
+	Images   *Images
+	Password string
+	ObjectMeta
 }
 
 func (f GalleryFile) Close() error {

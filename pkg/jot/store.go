@@ -61,7 +61,7 @@ func (s *TextStore) Stat(ctx context.Context, key string) (*types.TextFile, erro
 		return nil, err
 	}
 
-	return &types.TextFile{Key: key, ModifiedDate: resp.ModifiedDate}, nil
+	return &types.TextFile{Key: key, ObjectMeta: types.ObjectMeta{ModifiedDate: resp.ModifiedDate}}, nil
 }
 
 func (s *TextStore) Get(ctx context.Context, key string) (*types.TextFile, error) {
@@ -76,9 +76,9 @@ func (s *TextStore) Get(ctx context.Context, key string) (*types.TextFile, error
 	}
 
 	jotFile := &types.TextFile{
-		Key:          key,
-		Content:      resp.Content,
-		ModifiedDate: statResp.ModifiedDate,
+		Key:        key,
+		Content:    resp.Content,
+		ObjectMeta: types.ObjectMeta{ModifiedDate: statResp.ModifiedDate},
 	}
 
 	return jotFile, nil
