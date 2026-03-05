@@ -7,36 +7,50 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/google/wire"
+	"github.com/kyleterry/jot/pkg/config"
 	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/image/backend"
+	"github.com/kyleterry/jot/pkg/types"
 )
 
-const galleryFileName = "gallery"
+var ProviderSet = wire.NewSet(
+	wire.Struct(new(Options), "*"),
+	New,
+)
 
-type Config struct {
-	Path                 string
-	FilePermissions      os.FileMode
-	DirectoryPermissions os.FileMode
+var BoundProviderSet = wire.NewSet(
+	ProviderSet,
+	wire.Bind(new(backend.Interface), new(*Backend)),
+)
+
+const (
+	filePermissions      = 0o640
+	directoryPermissions = 0o740
+	directoryName        = "img"
+	galleryFileName      = "gallery"
+)
+
+type Options struct {
+	StorageDir config.DataDir
 }
 
 type Backend struct {
-	path                 string
-	filePermissions      os.FileMode
-	directoryPermissions os.FileMode
+	path string
 }
 
-func (b *Backend) Stat(ctx context.Context, key string) (*backend.StatResponse, error) {
-	path := filepath.Join(b.path, key, galleryFileName)
+func (b *Backend) Stat(ctx context.Context, id string) (*backend.StatResponse, error) {
+	path := filepath.Join(b.path, id, galleryFileName)
 
 	stat, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, errors.NewNotFoundError(key).WithCause(err)
+			return nil, errors.NewNotFoundError(id).WithCause(err)
 		}
 
 		return nil, err
@@ -45,10 +59,10 @@ func (b *Backend) Stat(ctx context.Context, key string) (*backend.StatResponse, 
 	return &backend.StatResponse{ModifiedDate: stat.ModTime()}, nil
 }
 
-func (b *Backend) Get(ctx context.Context, key string) (map[string]io.ReadCloser, error) {
-	images := map[string]io.ReadCloser{}
+func (b *Backend) Get(ctx context.Context, id string) (*types.Images, error) {
+	images := &types.Images{}
 
-	path := filepath.Join(b.path, key, galleryFileName)
+	path := filepath.Join(b.path, id, galleryFileName)
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -74,49 +88,64 @@ func (b *Backend) Get(ctx context.Context, key string) (map[string]io.ReadCloser
 			return nil, errors.NewUnknownError("malformed line from image gallery")
 		}
 
+		metadata := strings.Split(parts[0], ";")
+		name := metadata[0]
+
+		var contentType string
+		if len(metadata) > 1 {
+			contentType = metadata[1]
+		}
+
 		decoded, err := base64.StdEncoding.DecodeString(parts[1])
 		if err != nil {
 			return nil, err
 		}
 
 		r := bytes.NewBuffer(decoded)
-		images[parts[0]] = ioutil.NopCloser(r)
+		images.Add(name, &types.ImageData{
+			Name:        name,
+			Content:     io.NopCloser(r),
+			ContentType: contentType,
+		})
 	}
 
 	return images, nil
 }
 
-func (b *Backend) Create(ctx context.Context, key string, images map[string]io.ReadCloser) error {
+func (b *Backend) Create(ctx context.Context, id string, images *types.Images) error {
 	defer func() {
-		for _, c := range images {
-			c.Close()
+		for _, c := range images.Values {
+			c.Content.Close()
 		}
 	}()
 
-	dir := filepath.Join(b.path, key)
-	if err := os.Mkdir(dir, b.directoryPermissions); err != nil {
+	dir := filepath.Join(b.path, id)
+	if err := os.Mkdir(dir, directoryPermissions); err != nil {
 		return err
 	}
 
 	fp := filepath.Join(dir, galleryFileName)
 
-	galleryFile, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, b.filePermissions)
+	galleryFile, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermissions)
 	if err != nil {
 		return err
 	}
 
 	defer galleryFile.Close()
 
-	for imageName, reader := range images {
+	for _, imageName := range images.Keys {
+		imageData := images.Values[imageName]
 		buf := &bytes.Buffer{}
 
-		_, err := buf.ReadFrom(reader)
+		_, err := buf.ReadFrom(imageData.Content)
 		if err != nil {
 			return err
 		}
 
+		imageName = url.QueryEscape(imageName)
+
 		encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-		if _, err := fmt.Fprintf(galleryFile, "%s %s\n", imageName, encoded); err != nil {
+		if _, err := fmt.Fprintf(galleryFile, "%s;%s %s\n", imageName, imageData.ContentType, encoded); err != nil {
 			return err
 		}
 	}
@@ -124,18 +153,17 @@ func (b *Backend) Create(ctx context.Context, key string, images map[string]io.R
 	return nil
 }
 
-func (b *Backend) Delete(ctx context.Context, key string) error {
-	return nil
+func (b *Backend) Delete(ctx context.Context, id string) error {
+	panic("implement")
 }
 
-func New(cfg *Config) (*Backend, error) {
-	if err := os.MkdirAll(cfg.Path, cfg.DirectoryPermissions); err != nil {
+func New(opts *Options) (*Backend, error) {
+	store := filepath.Join(directoryName, string(opts.StorageDir))
+	if err := os.MkdirAll(store, directoryPermissions); err != nil {
 		return nil, err
 	}
 
 	return &Backend{
-		path:                 cfg.Path,
-		filePermissions:      cfg.FilePermissions,
-		directoryPermissions: cfg.DirectoryPermissions,
+		path: store,
 	}, nil
 }

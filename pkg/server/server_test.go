@@ -2,16 +2,20 @@ package server
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/cloudflare/gokey"
+	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/service"
+	"github.com/kyleterry/jot/pkg/id"
+	"github.com/kyleterry/jot/pkg/jot"
 	"github.com/kyleterry/jot/pkg/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -19,19 +23,38 @@ import (
 const TestMasterPassword = "test password"
 
 func WithTestServer(t *testing.T, fn func(*httptest.Server)) {
-	tmp, _, cleanup := testutil.NewTextFilesystem(t)
+	tmp, fs, cleanup := testutil.NewTextFilesystem(t)
 	defer cleanup()
 
+	seedPath := filepath.Join(tmp, "seed")
+	seedBytes, err := gokey.GenerateEncryptedKeySeed(TestMasterPassword)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(seedPath, seedBytes, 0o600))
+
 	cfg := &config.Config{
-		SeedFile:       filepath.Join(tmp, "seed"),
-		MasterPassword: TestMasterPassword,
-		DataDir:        tmp,
+		SeedFileLocation: auth.SeedFileLocation(seedPath),
+		MasterPassword:   auth.MasterPassword(TestMasterPassword),
+		DataDir:          config.DataDir(tmp),
 	}
 
-	s, err := service.NewDefaultServices(cfg)
+	spec := auth.DefaultSpec()
+	sf, err := auth.NewSeedFile(cfg.MasterPassword, cfg.SeedFileLocation, spec)
+	require.NoError(t, err)
+	pm := auth.NewPasswordManager(sf)
+
+	idm, err := id.NewIDManager()
 	require.NoError(t, err)
 
-	srv := New(cfg, s)
+	jotOpts := &jot.Options{
+		PasswordManager: pm,
+		IDManager:       idm,
+	}
+	textStore := jot.NewStore(fs, jotOpts)
+
+	jr := NewJotHandler(cfg, textStore, pm)
+	ir := NewImageHandler(cfg, nil, pm)
+
+	srv := New(cfg, jr, ir)
 
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
@@ -40,7 +63,7 @@ func WithTestServer(t *testing.T, fn func(*httptest.Server)) {
 }
 
 func TestJotServer(t *testing.T) {
-	var cases = []struct {
+	cases := []struct {
 		payload       string
 		updatePayload string
 		ensure        func(*testing.T, *http.Response)
@@ -70,7 +93,7 @@ func TestJotServer(t *testing.T) {
 				require.NotEmpty(t, resp.Header.Get("Jot-Password"))
 				jotPassword = resp.Header.Get("Jot-Password")
 
-				b, err := ioutil.ReadAll(resp.Body)
+				b, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -90,7 +113,7 @@ func TestJotServer(t *testing.T) {
 				jotETag = resp.Header.Get("ETag")
 				jotLastModified = resp.Header.Get("Last-Modified")
 
-				b, err := ioutil.ReadAll(resp.Body)
+				b, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -118,7 +141,7 @@ func TestJotServer(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 
-				b, err := ioutil.ReadAll(resp.Body)
+				b, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -151,7 +174,7 @@ func TestJotServer(t *testing.T) {
 				require.NotEmpty(t, resp.Header.Get("ETag"), "etag is missing")
 				jotETag = resp.Header.Get("ETag")
 
-				b, err := ioutil.ReadAll(resp.Body)
+				b, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -173,7 +196,7 @@ func TestJotServer(t *testing.T) {
 				require.NotEmpty(t, resp.Header.Get("ETag"), "etag is missing")
 				jotETag = resp.Header.Get("ETag")
 
-				b, err := ioutil.ReadAll(resp.Body)
+				b, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -192,7 +215,7 @@ func TestJotServer(t *testing.T) {
 				// we want to make sure the correct reponse redirect happens, so we
 				// tell the client not to follow redirects so we can check the actual
 				// response received.
-				client := ts.Client()
+				client = ts.Client()
 				client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 					return http.ErrUseLastResponse
 				}
@@ -200,7 +223,7 @@ func TestJotServer(t *testing.T) {
 				resp, err := client.Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				require.Equal(t, http.StatusSeeOther, resp.StatusCode, string(body), jotURL.String())
 			})
@@ -215,7 +238,7 @@ func TestJotServer(t *testing.T) {
 				// then set the updated etag
 				jotETag = resp.Header.Get("ETag")
 
-				b, err := ioutil.ReadAll(resp.Body)
+				b, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 

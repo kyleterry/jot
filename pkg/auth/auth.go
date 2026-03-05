@@ -1,16 +1,21 @@
 package auth
 
 import (
-	"bytes"
-	"io/ioutil"
+	"fmt"
 	"os"
 
 	"github.com/cloudflare/gokey"
-	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/errors"
+	"github.com/google/wire"
 )
 
-func defaultSpec() *gokey.PasswordSpec {
+var ProviderSet = wire.NewSet(
+	DefaultSpec,
+	NewSeedFile,
+	ProvideAllSeedFiles,
+	NewPasswordManager,
+)
+
+func DefaultSpec() *gokey.PasswordSpec {
 	return &gokey.PasswordSpec{
 		Length:         15,
 		Upper:          3,
@@ -22,12 +27,13 @@ func defaultSpec() *gokey.PasswordSpec {
 }
 
 type PasswordManager struct {
-	master string
-	seed   []byte
+	seedFiles []*SeedFile
 }
 
 func (p PasswordManager) Generate(key string) (string, error) {
-	password, err := gokey.GetPass(p.master, key, p.seed, defaultSpec())
+	sf := p.seedFiles[0]
+
+	password, err := gokey.GetPass(sf.password, key, sf.content, sf.spec)
 	if err != nil {
 		return "", err
 	}
@@ -44,52 +50,77 @@ func (p PasswordManager) IsMatch(key string, supplied string) (bool, error) {
 	return supplied == gen, nil
 }
 
-func NewPasswordManager(master string, seed []byte) PasswordManager {
-	return PasswordManager{master, seed}
+func NewPasswordManager(seedFiles ...*SeedFile) *PasswordManager {
+	return &PasswordManager{seedFiles: seedFiles}
 }
 
-func SeedFileExists(f string) (bool, error) {
-	if _, err := os.Stat(f); err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
+type (
+	MasterPassword   string
+	SeedFileLocation string
+)
 
-		return false, err
-	}
-
-	return true, nil
+type SeedFile struct {
+	password string
+	content  []byte
+	spec     *gokey.PasswordSpec
 }
 
-func LoadSeed(f string) ([]byte, error) {
-	seed, err := ioutil.ReadFile(f)
+func NewSeedFile(mp MasterPassword, loc SeedFileLocation, spec *gokey.PasswordSpec) (*SeedFile, error) {
+	seedBytes, err := os.ReadFile(string(loc))
 	if err != nil {
-		return nil, errors.NewUnknownError("failed to read seed file").WithCause(err)
+		return nil, fmt.Errorf("failed to load seed file: %w", err)
 	}
 
-	return seed, nil
+	return &SeedFile{
+		password: string(mp),
+		content:  seedBytes,
+		spec:     spec,
+	}, nil
 }
 
-func MakeSeed(pass string) ([]byte, error) {
-	return gokey.GenerateEncryptedKeySeed(pass)
+func ProvideAllSeedFiles(sf *SeedFile) []*SeedFile {
+	return []*SeedFile{sf}
 }
 
-func MakeSeedFile(cfg *config.Config) error {
-	b, err := MakeSeed(cfg.MasterPassword)
-	if err != nil {
-		return err
-	}
+// func SeedFileExists(f string) (bool, error) {
+// 	if _, err := os.Stat(f); err != nil {
+// 		if os.IsNotExist(err) {
+// 			return false, nil
+// 		}
 
-	buf := bytes.NewBuffer(b)
+// 		return false, err
+// 	}
 
-	f, err := os.OpenFile(cfg.SeedFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	defer f.Close()
-	if err != nil {
-		return err
-	}
+// 	return true, nil
+// }
 
-	if _, err := buf.WriteTo(f); err != nil {
-		return err
-	}
+// func LoadSeed(f string) ([]byte, error) {
+// 	seed, err := os.ReadFile(f)
+// 	if err != nil {
+// 		return nil, errors.NewUnknownError("failed to read seed file").WithCause(err)
+// 	}
 
-	return nil
-}
+// 	return seed, nil
+// }
+
+// func MakeSeedFile(cfg *config.Config) error {
+// 	b, err := gokey.GenerateEncryptedKeySeed(cfg.MasterPassword)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	buf := bytes.NewBuffer(b)
+
+// 	f, err := os.OpenFile(cfg.SeedFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	defer f.Close()
+
+// 	if _, err := buf.WriteTo(f); err != nil {
+// 		return err
+// 	}
+
+// 	return nil
+// }

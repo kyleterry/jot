@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
-	"io/ioutil"
 
 	"github.com/disintegration/imageorient"
+	"github.com/google/wire"
 	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/id"
@@ -17,13 +19,19 @@ import (
 	"github.com/kyleterry/jot/pkg/types"
 )
 
-type Services interface {
-	PasswordManager() auth.PasswordManagerService
-	IDManager() id.IDManagerService
+var ProviderSet = wire.NewSet(
+	wire.Struct(new(Options), "*"),
+	NewStore,
+)
+
+type Options struct {
+	PasswordManager *auth.PasswordManager
+	IDManager       *id.IDManager
 }
 
 type Store struct {
-	services       Services
+	pm             *auth.PasswordManager
+	im             *id.IDManager
 	storageBackend backend.Interface
 }
 
@@ -46,7 +54,7 @@ func (s *Store) Stat(ctx context.Context, key string) (*types.GalleryFile, error
 		return nil, err
 	}
 
-	return &types.GalleryFile{Key: key, ModifiedDate: resp.ModifiedDate}, nil
+	return &types.GalleryFile{ID: key, ModifiedDate: resp.ModifiedDate}, nil
 }
 
 func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error) {
@@ -55,22 +63,13 @@ func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error)
 		return nil, err
 	}
 
-	rawImages, err := s.storageBackend.Get(ctx, key)
+	images, err := s.storageBackend.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
 
-	images := map[string]*types.ImageData{}
-
-	for name, content := range rawImages {
-		images[name] = &types.ImageData{
-			Name:    name,
-			Content: content,
-		}
-	}
-
 	gallery := &types.GalleryFile{
-		Key:          key,
+		ID:           key,
 		Images:       images,
 		ModifiedDate: statResp.ModifiedDate,
 	}
@@ -78,19 +77,19 @@ func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error)
 	return gallery, nil
 }
 
-func (s *Store) Create(ctx context.Context, images map[string]io.ReadCloser) (*types.GalleryFile, error) {
-	key, err := s.services.IDManager().Generate()
+func (s *Store) Create(ctx context.Context, images *types.Images) (*types.GalleryFile, error) {
+	key, err := s.im.Generate()
 	if err != nil {
 		return nil, errors.NewUnknownError("failed to generate id").WithCause(err)
 	}
 
-	password, err := s.services.PasswordManager().Generate(key)
+	password, err := s.pm.Generate(key)
 	if err != nil {
 		return nil, errors.NewUnknownError("failed to generate password").WithCause(err)
 	}
 
 	if err := s.processImages(images); err != nil {
-		return nil, errors.NewUnknownError("failed to process images").WithCause(err)
+		return nil, fmt.Errorf("failed to process images: %w", err)
 	}
 
 	if err := s.storageBackend.Create(ctx, key, images); err != nil {
@@ -98,7 +97,7 @@ func (s *Store) Create(ctx context.Context, images map[string]io.ReadCloser) (*t
 	}
 
 	g := types.GalleryFile{
-		Key:      key,
+		ID:       key,
 		Password: password,
 	}
 
@@ -106,46 +105,74 @@ func (s *Store) Create(ctx context.Context, images map[string]io.ReadCloser) (*t
 }
 
 func (s *Store) Delete(ctx context.Context, gf *types.GalleryFile) error {
-	if err := s.storageBackend.Delete(ctx, gf.Key); err != nil {
+	if err := s.storageBackend.Delete(ctx, gf.ID); err != nil {
 		return errors.NewUnknownError("failed to delete gallery from backend").WithCause(err)
 	}
 
 	return nil
 }
 
-func (s *Store) processImages(images map[string]io.ReadCloser) error {
-	for k, r := range images {
-		img, format, err := imageorient.Decode(r)
+func (s *Store) processImages(images *types.Images) error {
+	for _, imageName := range images.Keys {
+		imageData := images.Values[imageName]
+
+		raw, err := io.ReadAll(imageData.Content)
+		imageData.Content.Close()
 		if err != nil {
-			return fmt.Errorf("failed to decode image: %w", err)
+			return fmt.Errorf("failed to read image: %w", err)
 		}
 
-		r.Close()
+		_, format, err := image.DecodeConfig(bytes.NewReader(raw))
+		if err != nil {
+			return fmt.Errorf("failed to decode image config: %w", err)
+		}
 
-		buf := bytes.Buffer{}
+		var buf bytes.Buffer
 
 		switch format {
-		case "jpeg":
-			if err := jpeg.Encode(&buf, img, nil); err != nil {
-				return fmt.Errorf("failed to encode image: %w", err)
+		case "gif":
+			// GIFs don't carry EXIF orientation data, so we bypass imageorient
+			// and use gif.DecodeAll/EncodeAll to preserve animated GIF frames.
+			g, err := gif.DecodeAll(bytes.NewReader(raw))
+			if err != nil {
+				return fmt.Errorf("failed to decode gif: %w", err)
 			}
-		case "png":
-			if err := png.Encode(&buf, img); err != nil {
-				return fmt.Errorf("failed to encode image: %w", err)
+			if err := gif.EncodeAll(&buf, g); err != nil {
+				return fmt.Errorf("failed to encode gif: %w", err)
+			}
+			imageData.ContentType = "image/gif"
+		default:
+			img, _, err := imageorient.Decode(bytes.NewReader(raw))
+			if err != nil {
+				return fmt.Errorf("failed to decode image: %w", err)
+			}
+			switch format {
+			case "jpeg":
+				if err := jpeg.Encode(&buf, img, nil); err != nil {
+					return fmt.Errorf("failed to encode image: %w", err)
+				}
+				imageData.ContentType = "image/jpeg"
+			case "png":
+				if err := png.Encode(&buf, img); err != nil {
+					return fmt.Errorf("failed to encode image: %w", err)
+				}
+				imageData.ContentType = "image/png"
+			default:
+				return errors.NewUnsupportedFormatError(format)
 			}
 		}
 
-		r = ioutil.NopCloser(&buf)
-
-		images[k] = r
+		imageData.Content = io.NopCloser(&buf)
+		images.Values[imageName] = imageData
 	}
 
 	return nil
 }
 
-func NewStore(b backend.Interface, services Services) *Store {
+func NewStore(b backend.Interface, opts *Options) *Store {
 	return &Store{
-		services:       services,
+		pm:             opts.PasswordManager,
+		im:             opts.IDManager,
 		storageBackend: b,
 	}
 }

@@ -3,9 +3,13 @@ package server
 import "github.com/kyleterry/jot/pkg/types"
 import "path"
 
-templ imageComponent(galleryKey string, img *types.ImageData) {
-	<div class="filename"><a href={ templ.URL(path.Join("/img", galleryKey, img.Name)) }>{ img.Name }</a></div>
-	<img src={ string(templ.URL(path.Join("/img", galleryKey, img.Name))) } alt={ img.Name } width="1000"/>
+func getImage(images *types.Images, imgName string) *types.ImageData {
+	return images.Values[imgName]
+}
+
+templ imageComponent(galleryID string, img *types.ImageData) {
+	<div class="filename"><a href={ templ.URL(path.Join("/img", galleryID, img.Name)) }>{ img.Name }</a></div>
+	<img src={ string(templ.URL(path.Join("/img", galleryID, img.Name))) } alt={ img.Name } width="1000"/>
 }
 
 templ galleryPage(gallery *types.GalleryFile) {
@@ -42,12 +46,13 @@ templ galleryPage(gallery *types.GalleryFile) {
       padding: 10px;
     }
   </style>
+			<title>jot img: { gallery.ID }</title>
 		</head>
 		<body>
 			<div class="wrap">
 				<div class="content">
-					for _, img := range gallery.Images {
-						@imageComponent(gallery.Key, img)
+					for _, name := range gallery.Images.Keys {
+						@imageComponent(gallery.ID, getImage(gallery.Images, name))
 					}
 				</div>
 			</div>

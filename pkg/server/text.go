@@ -1,10 +1,11 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/kyleterry/jot/pkg/auth"
@@ -14,19 +15,15 @@ import (
 	"github.com/kyleterry/jot/pkg/types"
 )
 
-type textServices interface {
-	TextStore() text.StoreService
-	PasswordManager() auth.PasswordManagerService
-}
-
 // jotHandler handles GET, PUT, DELETE requests for a jot
 type jotHandler struct {
-	services      textServices
-	cfg           *config.Config
-	getHandler    http.Handler
-	postHandler   http.Handler
-	putHandler    http.Handler
-	deleteHandler http.Handler
+	store           text.StoreService
+	passwordManager auth.PasswordManagerService
+	cfg             *config.Config
+	getHandler      http.Handler
+	postHandler     http.Handler
+	putHandler      http.Handler
+	deleteHandler   http.Handler
 }
 
 func (h jotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +49,7 @@ func (h jotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h jotHandler) get(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	jotFile := ctx.Value(CKTextFile).(*types.TextFile)
+	jotFile := types.TextFileFromContext(ctx)
 
 	w.Header().Set("content-type", "text/plain; charset=utf-8")
 	w.Header().Set("etag", jotFile.ModifiedDate.Format(time.RFC3339Nano))
@@ -67,25 +64,37 @@ func (h jotHandler) get(w http.ResponseWriter, r *http.Request) {
 func (h jotHandler) post(w http.ResponseWriter, r *http.Request) {
 	host := extractHost(h.cfg, r)
 
-	jotFile, err := h.services.TextStore().Create(r.Context(), r.Body)
+	jotFile, err := h.store.Create(r.Context(), r.Body)
 	if err != nil {
 		WriteError(err, w)
 
 		return
 	}
 
+	jotURL, err := url.Parse(host)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	jotURL = jotURL.JoinPath("txt", jotFile.Key)
+
 	w.Header().Set("jot-password", jotFile.Password)
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(fmt.Sprintf("%s/txt/%s\n", host, jotFile.Key)))
+
+	if _, err := fmt.Fprintf(w, "%s\n", jotURL.String()); err != nil {
+		log.Println(fmt.Errorf("error while writing jot url: %w", err))
+	}
 }
 
 func (h jotHandler) put(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	jotFile := ctx.Value(CKTextFile).(*types.TextFile)
+	jotFile := types.TextFileFromContext(ctx)
 
 	jotFile.Content = r.Body
 
-	if err := h.services.TextStore().Update(ctx, jotFile); err != nil {
+	if err := h.store.Update(ctx, jotFile); err != nil {
 		WriteError(err, w)
 
 		return
@@ -96,9 +105,9 @@ func (h jotHandler) put(w http.ResponseWriter, r *http.Request) {
 
 func (h jotHandler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	jotFile := ctx.Value(CKTextFile).(*types.TextFile)
+	jotFile := types.TextFileFromContext(ctx)
 
-	if err := h.services.TextStore().Delete(ctx, jotFile); err != nil {
+	if err := h.store.Delete(ctx, jotFile); err != nil {
 		WriteError(err, w)
 
 		return
@@ -107,27 +116,52 @@ func (h jotHandler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// jotPreloader instructs the store to do a stat on the object before loading
+// withJotPreloaded instructs the store to do a stat on the object before loading
 // the full content. This lets us check the If-Not-Match header browsers
 // will pass in the presence of an ETag header for a resource.
-func (h jotHandler) jotPreloader(next http.Handler) http.Handler {
+func (h jotHandler) withJotPreloaded(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key, ok := r.Context().Value(CKObjectKey).(string)
+		ctx := r.Context()
+		key, ok := ObjectKeyFromContext(ctx)
 		if !ok {
 			WriteError(errors.NewInvalidKeyError(key), w)
 
 			return
 		}
 
-		jotFile, err := h.services.TextStore().Stat(r.Context(), key)
+		jotFile, err := h.store.Stat(ctx, key)
 		if err != nil {
 			WriteError(err, w)
 
 			return
 		}
 
+		ctx = WithTaggable(ctx, jotFile)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// withJotLoaded is a middleware handler that loads the jot using a key derived
+// from the http request URI and sets it in ctx.
+func (h jotHandler) withJotLoaded(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, CKTextFile, jotFile)
+		key, ok := ObjectKeyFromContext(ctx)
+		if !ok {
+			WriteError(errors.NewInvalidKeyError(key), w)
+
+			return
+		}
+
+		jotFile, err := h.store.Get(ctx, key)
+		if err != nil {
+			WriteError(err, w)
+
+			return
+		}
+
+		ctx = types.WithTextFile(ctx, jotFile)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -138,7 +172,7 @@ func (h jotHandler) checkModified(next http.Handler) http.Handler {
 		switch r.Method {
 		case http.MethodGet, http.MethodHead:
 			ctx := r.Context()
-			jotFile := ctx.Value(CKTextFile).(*types.TextFile)
+			jotFile := types.TextFileFromContext(ctx)
 
 			msh := r.Header.Get("if-modified-since")
 
@@ -155,127 +189,27 @@ func (h jotHandler) checkModified(next http.Handler) http.Handler {
 	})
 }
 
-// checkPreconditions checks for If-None-Match in the case of GET and If-Match
-// in the case of PUT and does a match against the Jot object's ETag (modified date).
-// If GET and the tag doesn't match, then the content is loaded; otherwise it
-// returns a 304. If PUT and the tag doesn't match, then a 412 is returned.
-func (h jotHandler) checkPreconditions(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		jotFile := ctx.Value(CKTextFile).(*types.TextFile)
-
-		switch r.Method {
-		case http.MethodGet, http.MethodHead:
-			if r.Header.Get("if-modified-since") == "" {
-				precondition := r.Header.Get("if-none-match")
-
-				if precondition != "" {
-					if !jotFile.ShouldLoad(precondition) {
-						w.WriteHeader(http.StatusNotModified)
-
-						return
-					}
-				}
-			}
-		case http.MethodPut:
-			precondition := r.Header.Get("if-match")
-
-			if precondition != "" {
-				if !jotFile.ShouldWrite(precondition) {
-					WriteError(errors.NewETagMismatchError(), w)
-
-					return
-				}
-			}
-		}
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// withJotLoaded is a middleware handler that loads the jot using a key derived
-// from the http request URI and sets it in ctx.
-func (h jotHandler) withJotLoaded(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		key, ok := ctx.Value(CKObjectKey).(string)
-		if !ok {
-			WriteError(errors.NewInvalidKeyError(key), w)
-
-			return
-		}
-
-		jotFile, err := h.services.TextStore().Get(ctx, key)
-		if err != nil {
-			WriteError(err, w)
-
-			return
-		}
-
-		ctx = context.WithValue(ctx, CKTextFile, jotFile)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// authentication is a middleware handler that ensures the password is set
-// in the request URI's query string, then checks to see if it's a valid password
-// for the given path in the URI.
-func (h jotHandler) authentication(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key, ok := r.Context().Value(CKObjectKey).(string)
-		if !ok {
-			WriteError(errors.NewInvalidKeyError(key), w)
-
-			return
-		}
-
-		_, supplied, ok := r.BasicAuth()
-
-		if !ok || supplied == "" {
-			// query parameter is deprecated and will be removed soon
-			supplied = r.URL.Query().Get("password")
-		}
-
-		success, err := h.services.PasswordManager().IsMatch(key, supplied)
-		if err != nil {
-			err := errors.NewUnknownError("password manager failed").WithCause(err)
-			WriteError(err, w)
-
-			return
-		}
-
-		if !success {
-			err := errors.NewInvalidPasswordError()
-			WriteError(err, w)
-
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 // newJotHandler returns a new jotHandler setting the relevant middleware and creating
 // a simple mux that switched on http method.
-func newJotHandler(cfg *config.Config, services textServices) *jotHandler {
+func NewJotHandler(cfg *config.Config, store text.StoreService, pm auth.PasswordManagerService) *jotHandler {
 	h := &jotHandler{
-		cfg:      cfg,
-		services: services,
+		cfg:             cfg,
+		store:           store,
+		passwordManager: pm,
 	}
 
-	objKey := NewMiddleware(keyRequired)
-	authenticated := NewMiddleware((*h).authentication)
+	authenticated := NewMiddleware(WithAuthenticationMiddleware(h.passwordManager))
+	keyRequired := NewMiddleware(WithKeyRequiredMiddleware)
 	jotLoaded := NewMiddleware(
-		(*h).jotPreloader,
-		// (*h).checkModified,
-		(*h).checkPreconditions,
+		(*h).withJotPreloaded,
+		WithPreconditionsMiddleware,
 		(*h).withJotLoaded,
 	)
-	authenticated = authenticated.ExtendWith(jotLoaded)
-	authenticated = objKey.ExtendWith(authenticated)
 
-	h.getHandler = objKey.Wrap(jotLoaded.Wrap(http.HandlerFunc((*h).get)))
+	authenticated = keyRequired.ExtendWith(authenticated, jotLoaded)
+	keyRequired = keyRequired.ExtendWith(jotLoaded)
+
+	h.getHandler = keyRequired.Wrap(http.HandlerFunc((*h).get))
 	h.postHandler = http.HandlerFunc((*h).post)
 	h.putHandler = authenticated.Wrap(http.HandlerFunc((*h).put))
 	h.deleteHandler = authenticated.Wrap(http.HandlerFunc((*h).delete))

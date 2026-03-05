@@ -13,7 +13,11 @@ import "bytes"
 import "github.com/kyleterry/jot/pkg/types"
 import "path"
 
-func imageComponent(galleryKey string, img *types.ImageData) templ.Component {
+func getImage(images *types.Images, imgName string) *types.ImageData {
+	return images.Values[imgName]
+}
+
+func imageComponent(galleryID string, img *types.ImageData) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, templ_7745c5c3_W io.Writer) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templ_7745c5c3_W.(*bytes.Buffer)
 		if !templ_7745c5c3_IsBuffer {
@@ -30,7 +34,7 @@ func imageComponent(galleryKey string, img *types.ImageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var2 templ.SafeURL = templ.URL(path.Join("/img", galleryKey, img.Name))
+		var templ_7745c5c3_Var2 templ.SafeURL = templ.URL(path.Join("/img", galleryID, img.Name))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var2)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -42,7 +46,7 @@ func imageComponent(galleryKey string, img *types.ImageData) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(img.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/server/gallery.templ`, Line: 7, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/server/gallery.templ`, Line: 11, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -53,9 +57,9 @@ func imageComponent(galleryKey string, img *types.ImageData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(string(templ.URL(path.Join("/img", galleryKey, img.Name))))
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(string(templ.URL(path.Join("/img", galleryID, img.Name))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/server/gallery.templ`, Line: 8, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/server/gallery.templ`, Line: 12, Col: 69}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -68,7 +72,7 @@ func imageComponent(galleryKey string, img *types.ImageData) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(img.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/server/gallery.templ`, Line: 8, Col: 87}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/server/gallery.templ`, Line: 12, Col: 86}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -98,12 +102,25 @@ func galleryPage(gallery *types.GalleryFile) templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString("<!doctype html><html><head><style>\n    body {\n      background-color: #141617;\n      color: #d4be98;\n      display: flex;\n      flex-direction: column;\n      justify-content: center;\n      height: 100vh;\n      margin: 0;\n    }\n\n    a {\n      color: #d4be98;\n    }\n\n    .wrap {\n      height: 100%;\n      display: flex;\n      justify-content: center;\n    }\n\n    .content {\n      margin: auto;\n      max-width: 1024px;\n    }\n\n    .filename {\n      padding: 10px;\n    }\n  </style></head><body><div class=\"wrap\"><div class=\"content\">")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString("<!doctype html><html><head><style>\n    body {\n      background-color: #141617;\n      color: #d4be98;\n      display: flex;\n      flex-direction: column;\n      justify-content: center;\n      height: 100vh;\n      margin: 0;\n    }\n\n    a {\n      color: #d4be98;\n    }\n\n    .wrap {\n      height: 100%;\n      display: flex;\n      justify-content: center;\n    }\n\n    .content {\n      margin: auto;\n      max-width: 1024px;\n    }\n\n    .filename {\n      padding: 10px;\n    }\n  </style><title>jot img: ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, img := range gallery.Images {
-			templ_7745c5c3_Err = imageComponent(gallery.Key, img).Render(ctx, templ_7745c5c3_Buffer)
+		var templ_7745c5c3_Var7 string
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(gallery.ID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/server/gallery.templ`, Line: 49, Col: 31}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString("</title></head><body><div class=\"wrap\"><div class=\"content\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, name := range gallery.Images.Keys {
+			templ_7745c5c3_Err = imageComponent(gallery.ID, getImage(gallery.Images, name)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

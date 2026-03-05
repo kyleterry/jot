@@ -6,9 +6,29 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/google/wire"
+	"github.com/kyleterry/jot/pkg/config"
 	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/jot/store"
 )
+
+var ProviderSet = wire.NewSet(
+	ProvideFilesystemOptions,
+	NewFilesystem,
+)
+
+var BoundProviderSet = wire.NewSet(
+	ProviderSet,
+	wire.Bind(new(store.Backend), new(*Filesystem)),
+)
+
+func ProvideFilesystemOptions(dir config.DataDir) FilesystemOptions {
+	return FilesystemOptions{
+		Path:                 filepath.Join(string(dir), config.TextDirectoryName),
+		FilePermissions:      config.FilePermissions,
+		DirectoryPermissions: config.DirectoryPermissions,
+	}
+}
 
 type FilesystemOptions struct {
 	Path                 string

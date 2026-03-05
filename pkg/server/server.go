@@ -11,22 +11,6 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/service"
-)
-
-// ContextKey prevents key collisions when using the global context
-type ContextKey int
-
-const (
-	// CKTextFile is the key for context that holds the TextFile object loaded by
-	// middleware
-	CKTextFile ContextKey = iota
-	// CKImageGallery is the key for context that holds the ImageGallery object
-	// loaded by middleware
-	CKImageGallery
-	// CKObjectKey is any key that can be used to look up an object from any of
-	// the stores
-	CKObjectKey
 )
 
 const (
@@ -38,8 +22,9 @@ const (
 // Server listens to a port on an address as a HTTP server
 // and uses gorilla/mux to route requests to HTTP handlers.
 type Server struct {
-	services service.Services
-	cfg      *config.Config
+	cfg        *config.Config
+	jotRoute   *jotHandler
+	imageRoute *imageHandler
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -51,11 +36,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch head {
 	case "txt":
-		// TODO modify constructor args
-		next = newJotHandler(s.cfg, s.services)
+		next = s.jotRoute
 	case "img":
-		// TODO fill out constructor args
-		next = newImageHandler(s.cfg, s.services)
+		next = s.imageRoute
+	case "favicon.ico":
+		next = faviconHandler{}
 	case "":
 		next = indexHandler{cfg: s.cfg}
 	default:
@@ -99,10 +84,11 @@ func (s *Server) run(srv *http.Server, errch chan<- error) {
 
 // New returns a new instance of a jot Server with
 // the data from the seedFile loaded.
-func New(cfg *config.Config, s service.Services) *Server {
+func New(cfg *config.Config, jr *jotHandler, ir *imageHandler) *Server {
 	return &Server{
-		services: s,
-		cfg:      cfg,
+		cfg:        cfg,
+		jotRoute:   jr,
+		imageRoute: ir,
 	}
 }
 

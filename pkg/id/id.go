@@ -1,10 +1,11 @@
 package id
 
-import "github.com/teris-io/shortid"
+import (
+	"github.com/google/wire"
+	"github.com/teris-io/shortid"
+)
 
-type IDManagerService interface {
-	Generate() (string, error)
-}
+var ProviderSet = wire.NewSet(NewIDManager)
 
 type IDManager struct {
 	sid *shortid.Shortid
@@ -15,7 +16,7 @@ func (m *IDManager) Generate() (string, error) {
 }
 
 func NewIDManager() (*IDManager, error) {
-	sid, err := shortid.New(1, shortid.DefaultABC, 2342)
+	sid, err := shortid.New(0, shortid.DefaultABC, 2342)
 	if err != nil {
 		return nil, err
 	}

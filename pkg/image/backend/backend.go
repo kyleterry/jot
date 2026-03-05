@@ -2,8 +2,9 @@ package backend
 
 import (
 	"context"
-	"io"
 	"time"
+
+	"github.com/kyleterry/jot/pkg/types"
 )
 
 type StatResponse struct {
@@ -12,7 +13,7 @@ type StatResponse struct {
 
 type Interface interface {
 	Stat(ctx context.Context, key string) (*StatResponse, error)
-	Get(ctx context.Context, key string) (map[string]io.ReadCloser, error)
-	Create(ctx context.Context, key string, images map[string]io.ReadCloser) error
+	Get(ctx context.Context, key string) (*types.Images, error)
+	Create(ctx context.Context, key string, images *types.Images) error
 	Delete(ctx context.Context, key string) error
 }

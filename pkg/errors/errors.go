@@ -77,3 +77,11 @@ func NewInvalidKeyError(key string) *StoreError {
 		StatusCode: http.StatusInternalServerError,
 	}
 }
+
+func NewUnsupportedFormatError(givenFormat string) *StoreError {
+	return &StoreError{
+		Type:       ErrorTypeUnknown,
+		Message:    fmt.Sprintf("unsupported format: %s", givenFormat),
+		StatusCode: http.StatusUnsupportedMediaType,
+	}
+}

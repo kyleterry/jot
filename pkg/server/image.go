@@ -2,29 +2,27 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
 	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/image"
 	"github.com/kyleterry/jot/pkg/types"
 )
 
-type imageServices interface {
-	ImageStore() image.StoreService
-}
-
 type imageHandler struct {
-	services      imageServices
-	cfg           *config.Config
-	getHandler    http.Handler
-	postHandler   http.Handler
-	deleteHandler http.Handler
+	store           image.StoreService
+	passwordManager auth.PasswordManagerService
+	cfg             *config.Config
+	getHandler      http.Handler
+	postHandler     http.Handler
+	deleteHandler   http.Handler
 }
 
 func (h *imageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -49,9 +47,15 @@ func (h *imageHandler) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	images := map[string]io.ReadCloser{}
+	images := &types.Images{}
 
 	imageFileHeaders := r.MultipartForm.File["images"]
+
+	if len(imageFileHeaders) == 0 {
+		http.Error(w, "no images found in request", http.StatusBadRequest)
+
+		return
+	}
 
 	for _, header := range imageFileHeaders {
 		file, err := header.Open()
@@ -61,24 +65,39 @@ func (h *imageHandler) post(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		images[header.Filename] = file
+		images.Add(header.Filename, &types.ImageData{
+			Name:    header.Filename,
+			Content: file,
+		})
 	}
 
-	g, err := h.services.ImageStore().Create(r.Context(), images)
+	g, err := h.store.Create(r.Context(), images)
+	if err != nil {
+		WriteError(err, w)
+
+		return
+	}
+
+	imageURL, err := url.Parse(host)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
 		return
 	}
 
+	imageURL = imageURL.JoinPath("img", g.ID)
+
 	w.Header().Set("jot-password", g.Password)
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(fmt.Sprintf("%s/img/%s\n", host, g.Key)))
+
+	if _, err := fmt.Fprintf(w, "%s\n", imageURL.String()); err != nil {
+		log.Println(fmt.Errorf("error while writing image url: %w", err))
+	}
 }
 
 func (h *imageHandler) get(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	gallery := ctx.Value(CKImageGallery).(*types.GalleryFile)
+	gallery := types.GalleryFileFromContext(ctx)
 
 	w.Header().Set("etag", gallery.ModifiedDate.Format(time.RFC3339Nano))
 	w.Header().Set("last-modified", gallery.ModifiedDate.Format(http.TimeFormat))
@@ -87,36 +106,42 @@ func (h *imageHandler) get(w http.ResponseWriter, r *http.Request) {
 
 	_, tail := shiftPath(r.URL.Path)
 	if tail == "" || tail == "/" {
-		galleryPage(gallery).Render(ctx, w)
+		if err := galleryPage(gallery).Render(ctx, w); err != nil {
+			log.Println(fmt.Errorf("error while rendering gallery page: %w", err))
+		}
 
 		return
 	}
 
 	tail = strings.TrimPrefix(tail, "/")
 
-	for _, image := range gallery.Images {
-		if image.Name == tail {
-			w.Header().Set("content-disposition", fmt.Sprintf("filename=\"%s\"", image.Name))
+	image, ok := gallery.Images.Values[tail]
+	if !ok {
+		http.NotFound(w, r)
 
-			buf := bytes.Buffer{}
-			buf.ReadFrom(image.Content)
-
-			seeker := bytes.NewReader(buf.Bytes())
-
-			http.ServeContent(w, r, image.Name, gallery.ModifiedDate, seeker)
-
-			return
-		}
+		return
 	}
 
-	http.NotFound(w, r)
+	w.Header().Set("content-disposition", fmt.Sprintf("filename=\"%s\"", image.Name))
+	w.Header().Set("content-type", image.ContentType)
+
+	buf := bytes.Buffer{}
+	if _, err := buf.ReadFrom(image.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	seeker := bytes.NewReader(buf.Bytes())
+
+	http.ServeContent(w, r, image.Name, gallery.ModifiedDate, seeker)
 }
 
 func (h *imageHandler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	gallery := ctx.Value(CKImageGallery).(*types.GalleryFile)
+	gallery := types.GalleryFileFromContext(ctx)
 
-	if err := h.services.ImageStore().Delete(ctx, gallery); err != nil {
+	if err := h.store.Delete(ctx, gallery); err != nil {
 		WriteError(err, w)
 
 		return
@@ -125,102 +150,78 @@ func (h *imageHandler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// galleryPreloader instructs the store to do a stat on the object before loading
-// the full content. This lets us check the If-Not-Match header browsers
-// will pass in the presence of an ETag header for a resource.
-func (h imageHandler) galleryPreloader(next http.Handler) http.Handler {
+// withGalleryPreloaded instructs the store to do a stat on the object before
+// loading the full content. This lets us check the If-None-Match header
+// browsers will pass in the presence of an ETag header for a resource.
+func (h imageHandler) withGalleryPreloaded(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key, ok := r.Context().Value(CKObjectKey).(string)
+		ctx := r.Context()
+		key, ok := ObjectKeyFromContext(ctx)
 		if !ok {
 			WriteError(errors.NewInvalidKeyError(key), w)
 
 			return
 		}
 
-		gallery, err := h.services.ImageStore().Stat(r.Context(), key)
+		gallery, err := h.store.Stat(ctx, key)
 		if err != nil {
 			WriteError(err, w)
 
 			return
 		}
 
-		ctx := r.Context()
-		ctx = context.WithValue(ctx, CKImageGallery, gallery)
+		ctx = WithTaggable(r.Context(), gallery)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// checkPreconditions checks for If-None-Match in the case of GET and If-Match
-// in the case of PUT and does a match against the Jot object's ETag (modified date).
-// If GET and the tag doesn't match, then the content is loaded; otherwise it
-// returns a 304. If PUT and the tag doesn't match, then a 412 is returned.
-func (h imageHandler) checkPreconditions(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		gallery := ctx.Value(CKImageGallery).(*types.GalleryFile)
-
-		switch r.Method {
-		case http.MethodGet:
-			if r.Header.Get("if-modified-since") == "" {
-				precondition := r.Header.Get("If-None-Match")
-
-				if precondition != "" {
-					if !gallery.ShouldLoad(precondition) {
-						w.WriteHeader(http.StatusNotModified)
-
-						return
-					}
-				}
-			}
-		}
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// withGalleryLoaded is a middleware handler that loads the image gallery using a key derived
-// from the http request URI and sets it in ctx.
+// withGalleryLoaded is a middleware handler that loads the image gallery using
+// a key derived from the http request URI and sets it in ctx.
 func (h imageHandler) withGalleryLoaded(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		key, ok := ctx.Value(CKObjectKey).(string)
+		key, ok := ObjectKeyFromContext(ctx)
 		if !ok {
 			WriteError(errors.NewInvalidKeyError(key), w)
 
 			return
 		}
 
-		gallery, err := h.services.ImageStore().Get(ctx, key)
+		gallery, err := h.store.Get(ctx, key)
 		if err != nil {
 			WriteError(err, w)
 
 			return
 		}
 
-		ctx = context.WithValue(ctx, CKImageGallery, gallery)
+		ctx = types.WithGalleryFile(ctx, gallery)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-func newImageHandler(cfg *config.Config, s imageServices) *imageHandler {
+func NewImageHandler(cfg *config.Config, store image.StoreService, pm auth.PasswordManagerService) *imageHandler {
 	h := &imageHandler{
-		cfg:      cfg,
-		services: s,
+		cfg:             cfg,
+		store:           store,
+		passwordManager: pm,
 	}
 
-	objKey := NewMiddleware(keyRequired)
+	authenticated := NewMiddleware(WithAuthenticationMiddleware(pm))
+	keyRequired := NewMiddleware(WithKeyRequiredMiddleware)
 	galleryLoaded := NewMiddleware(
-		(*h).galleryPreloader,
-		(*h).checkPreconditions,
+		(*h).withGalleryPreloaded,
+		WithPreconditionsMiddleware,
 		(*h).withGalleryLoaded,
 	)
-	galleryLoaded = objKey.ExtendWith(galleryLoaded)
 
-	h.getHandler = galleryLoaded.Wrap(http.HandlerFunc((*h).get))
+	authenticated = keyRequired.ExtendWith(authenticated, galleryLoaded)
+	keyRequired = keyRequired.ExtendWith(galleryLoaded)
+
+	h.getHandler = keyRequired.Wrap(http.HandlerFunc((*h).get))
 	h.postHandler = http.HandlerFunc((*h).post)
-	h.deleteHandler = galleryLoaded.Wrap(http.HandlerFunc((*h).delete))
+	h.deleteHandler = authenticated.Wrap(http.HandlerFunc((*h).delete))
 
 	return h
 }

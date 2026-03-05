@@ -1,6 +1,6 @@
 package version
 
-const (
+var (
 	Version = "dev"
 	Commit  = "HEAD"
 )
