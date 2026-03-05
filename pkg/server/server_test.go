@@ -2,7 +2,11 @@ package server
 
 import (
 	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,7 +19,10 @@ import (
 	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
 	"github.com/kyleterry/jot/pkg/id"
+	pkgimage "github.com/kyleterry/jot/pkg/image"
+	imagefs "github.com/kyleterry/jot/pkg/image/backend/filesystem"
 	"github.com/kyleterry/jot/pkg/jot"
+	"github.com/kyleterry/jot/pkg/store"
 	"github.com/kyleterry/jot/pkg/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +52,7 @@ func WithTestServer(t *testing.T, fn func(*httptest.Server)) {
 	idm, err := id.NewIDManager()
 	require.NoError(t, err)
 
-	jotOpts := &jot.Options{
+	jotOpts := &store.Options{
 		PasswordManager: pm,
 		IDManager:       idm,
 	}
@@ -299,5 +306,218 @@ func TestJotServer(t *testing.T) {
 				require.Equal(t, http.StatusNotFound, resp.StatusCode)
 			})
 		}
+	})
+}
+
+func WithImageTestServer(t *testing.T, fn func(*httptest.Server)) {
+	t.Helper()
+
+	tmp, err := os.MkdirTemp("", "github.com-kyleterry-jot-img")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmp)
+
+	seedPath := filepath.Join(tmp, "seed")
+	seedBytes, err := gokey.GenerateEncryptedKeySeed(TestMasterPassword)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(seedPath, seedBytes, 0o600))
+
+	cfg := &config.Config{
+		SeedFileLocation: auth.SeedFileLocation(seedPath),
+		MasterPassword:   auth.MasterPassword(TestMasterPassword),
+		DataDir:          config.DataDir(tmp),
+	}
+
+	spec := auth.DefaultSpec()
+	sf, err := auth.NewSeedFile(cfg.MasterPassword, cfg.SeedFileLocation, spec)
+	require.NoError(t, err)
+	pm := auth.NewPasswordManager(sf)
+
+	idm, err := id.NewIDManager()
+	require.NoError(t, err)
+
+	storeOpts := &store.Options{
+		PasswordManager: pm,
+		IDManager:       idm,
+	}
+
+	imgBackend, err := imagefs.New(&imagefs.Options{StorageDir: cfg.DataDir})
+	require.NoError(t, err)
+
+	imgStore := pkgimage.NewStore(imgBackend, storeOpts)
+
+	// txt is not exercised in image tests; lazy closures in NewJotHandler won't panic
+	jr := NewJotHandler(cfg, nil, pm)
+	ir := NewImageHandler(cfg, imgStore, pm)
+
+	srv := New(cfg, jr, ir)
+
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	fn(ts)
+}
+
+// minimalPNG returns the bytes of a 1×1 red PNG image.
+func minimalPNG(t *testing.T) []byte {
+	t.Helper()
+
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, img))
+
+	return buf.Bytes()
+}
+
+// imageMultipart builds a multipart/form-data body with a single "images" file field.
+func imageMultipart(t *testing.T, filename string, data []byte) (*bytes.Buffer, string) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	fw, err := w.CreateFormFile("images", filename)
+	require.NoError(t, err)
+
+	_, err = fw.Write(data)
+	require.NoError(t, err)
+
+	require.NoError(t, w.Close())
+
+	return &buf, w.FormDataContentType()
+}
+
+func TestImageServer(t *testing.T) {
+	WithImageTestServer(t, func(ts *httptest.Server) {
+		client := ts.Client()
+		pngData := minimalPNG(t)
+
+		var (
+			galleryURL *url.URL
+			password   string
+			etag       string
+		)
+
+		t.Run("POST", func(t *testing.T) {
+			body, ct := imageMultipart(t, "red.png", pngData)
+
+			resp, err := client.Post(ts.URL+"/img", ct, body)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+			password = resp.Header.Get("Jot-Password")
+			require.NotEmpty(t, password)
+
+			raw, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			u, err := url.Parse(strings.TrimSpace(string(raw)))
+			require.NoError(t, err)
+			galleryURL = u
+		})
+
+		t.Run("GET gallery", func(t *testing.T) {
+			resp, err := client.Get(galleryURL.String())
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
+
+			etag = resp.Header.Get("Etag")
+			require.NotEmpty(t, etag)
+		})
+
+		t.Run("GET gallery with current If-None-Match", func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, galleryURL.String(), nil)
+			require.NoError(t, err)
+			req.Header.Set("if-none-match", etag)
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusNotModified, resp.StatusCode)
+		})
+
+		t.Run("GET gallery with expired If-None-Match", func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, galleryURL.String(), nil)
+			require.NoError(t, err)
+			req.Header.Set("if-none-match", "2001-01-01T00:00:00Z")
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+		})
+
+		t.Run("GET image file", func(t *testing.T) {
+			fileURL := galleryURL.JoinPath("red.png")
+
+			resp, err := client.Get(fileURL.String())
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(t, "image/png", resp.Header.Get("Content-Type"))
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.NotEmpty(t, body)
+		})
+
+		t.Run("GET unknown image file returns 404", func(t *testing.T) {
+			fileURL := galleryURL.JoinPath("nope.png")
+
+			resp, err := client.Get(fileURL.String())
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusNotFound, resp.StatusCode)
+		})
+
+		t.Run("DELETE with wrong password", func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodDelete, galleryURL.String(), nil)
+			require.NoError(t, err)
+			req.SetBasicAuth("", "wrongpassword")
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		})
+
+		t.Run("DELETE", func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodDelete, galleryURL.String(), nil)
+			require.NoError(t, err)
+			req.SetBasicAuth("", password)
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusNoContent, resp.StatusCode)
+		})
+
+		t.Run("GET after DELETE", func(t *testing.T) {
+			resp, err := client.Get(galleryURL.String())
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusNotFound, resp.StatusCode)
+		})
+
+		t.Run("GET nonexistent gallery", func(t *testing.T) {
+			resp, err := client.Get(ts.URL + "/img/doesnotexist")
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, http.StatusNotFound, resp.StatusCode)
+		})
 	})
 }

@@ -8,6 +8,60 @@ import (
 	"github.com/kyleterry/jot/pkg/errors"
 )
 
+// withPreloaded returns a MiddlewareFunc that calls stat to load object metadata
+// (for ETag/precondition checks) and stores it in the context as a Taggable.
+func withPreloaded[T Taggable](stat func(context.Context, string) (T, error)) MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			key, ok := ObjectKeyFromContext(ctx)
+			if !ok {
+				WriteError(errors.NewInvalidKeyError(key), w)
+
+				return
+			}
+
+			obj, err := stat(ctx, key)
+			if err != nil {
+				WriteError(err, w)
+
+				return
+			}
+
+			ctx = WithTaggable(ctx, obj)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// withLoaded returns a MiddlewareFunc that calls get to fully load an object
+// and stores it in the context using storeInCtx.
+func withLoaded[T any](get func(context.Context, string) (T, error), storeInCtx func(context.Context, T) context.Context) MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			key, ok := ObjectKeyFromContext(ctx)
+			if !ok {
+				WriteError(errors.NewInvalidKeyError(key), w)
+
+				return
+			}
+
+			obj, err := get(ctx, key)
+			if err != nil {
+				WriteError(err, w)
+
+				return
+			}
+
+			ctx = storeInCtx(ctx, obj)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 // MiddlewareFunc is a type that allows the wrapping of an http.Handler in middleware.
 type MiddlewareFunc func(http.Handler) http.Handler
 

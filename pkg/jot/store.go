@@ -5,31 +5,23 @@ import (
 	"io"
 
 	"github.com/google/wire"
-	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/errors"
-	"github.com/kyleterry/jot/pkg/id"
-	"github.com/kyleterry/jot/pkg/jot/store"
+	jotbackend "github.com/kyleterry/jot/pkg/jot/store"
+	"github.com/kyleterry/jot/pkg/store"
 	"github.com/kyleterry/jot/pkg/types"
 )
 
 var ProviderSet = wire.NewSet(
-	wire.Struct(new(Options), "*"),
 	NewStore,
 )
 
-type Options struct {
-	PasswordManager *auth.PasswordManager
-	IDManager       *id.IDManager
-}
-
 // TextStore wraps a backend implementation and creates/checks passwords for a jot
 type TextStore struct {
-	pm      *auth.PasswordManager
-	im      *id.IDManager
-	backend store.Backend
+	opts    *store.Options
+	backend jotbackend.Backend
 }
 
-func (s *TextStore) stat(key string) (*store.StatResponse, error) {
+func (s *TextStore) stat(key string) (*jotbackend.StatResponse, error) {
 	resp, err := s.backend.Stat(key)
 	if err != nil {
 		if errors.IsStoreError(err) {
@@ -42,7 +34,7 @@ func (s *TextStore) stat(key string) (*store.StatResponse, error) {
 	return resp, nil
 }
 
-func (s *TextStore) getFile(key string) (*store.GetResponse, error) {
+func (s *TextStore) getFile(key string) (*jotbackend.GetResponse, error) {
 	resp, err := s.backend.Get(key)
 	if err != nil {
 		if errors.IsStoreError(err) {
@@ -85,14 +77,9 @@ func (s *TextStore) Get(ctx context.Context, key string) (*types.TextFile, error
 }
 
 func (s *TextStore) Create(ctx context.Context, content io.ReadCloser) (*types.TextFile, error) {
-	key, err := s.im.Generate()
+	key, password, err := store.NewIDAndPassword(s.opts.IDManager, s.opts.PasswordManager)
 	if err != nil {
-		return nil, errors.NewUnknownError("failed to generate id").WithCause(err)
-	}
-
-	password, err := s.pm.Generate(key)
-	if err != nil {
-		return nil, errors.NewUnknownError("failed to generate password").WithCause(err)
+		return nil, err
 	}
 
 	if err := s.backend.Put(key, content); err != nil {
@@ -122,10 +109,9 @@ func (s *TextStore) Delete(ctx context.Context, jotFile *types.TextFile) error {
 	return nil
 }
 
-func NewStore(backend store.Backend, opts *Options) *TextStore {
+func NewStore(backend jotbackend.Backend, opts *store.Options) *TextStore {
 	return &TextStore{
-		pm:      opts.PasswordManager,
-		im:      opts.IDManager,
+		opts:    opts,
 		backend: backend,
 	}
 }

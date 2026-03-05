@@ -15,6 +15,7 @@ import (
 	"github.com/kyleterry/jot/pkg/jot"
 	"github.com/kyleterry/jot/pkg/jot/store/backends"
 	"github.com/kyleterry/jot/pkg/server"
+	"github.com/kyleterry/jot/pkg/store"
 )
 
 // Injectors from wire.go:
@@ -43,7 +44,7 @@ func initServer() (*server.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	options := &jot.Options{
+	options := &store.Options{
 		PasswordManager: passwordManager,
 		IDManager:       idManager,
 	}
@@ -56,12 +57,8 @@ func initServer() (*server.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	imageOptions := &image.Options{
-		PasswordManager: passwordManager,
-		IDManager:       idManager,
-	}
-	store := image.NewStore(backend, imageOptions)
-	imageHandler := server.NewImageHandler(configConfig, store, passwordManager)
+	imageStore := image.NewStore(backend, options)
+	imageHandler := server.NewImageHandler(configConfig, imageStore, passwordManager)
 	serverServer := server.New(configConfig, jotHandler, imageHandler)
 	return serverServer, nil
 }

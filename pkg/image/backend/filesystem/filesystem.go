@@ -152,11 +152,16 @@ func (b *Backend) Create(ctx context.Context, id string, images *types.Images) e
 }
 
 func (b *Backend) Delete(ctx context.Context, id string) error {
-	panic("implement")
+	dir := filepath.Join(b.path, id)
+	if err := os.RemoveAll(dir); err != nil {
+		return errors.NewUnknownError("failed to delete gallery from filesystem").WithCause(err)
+	}
+
+	return nil
 }
 
 func New(opts *Options) (*Backend, error) {
-	store := filepath.Join(directoryName, string(opts.StorageDir))
+	store := filepath.Join(string(opts.StorageDir), directoryName)
 	if err := os.MkdirAll(store, config.DirectoryPermissions); err != nil {
 		return nil, err
 	}

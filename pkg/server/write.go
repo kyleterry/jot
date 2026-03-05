@@ -1,9 +1,12 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 
+	"github.com/kyleterry/jot/pkg/config"
 	"github.com/kyleterry/jot/pkg/errors"
 )
 
@@ -24,4 +27,26 @@ func WriteError(err error, w http.ResponseWriter) {
 
 	log.Printf("[error cause] %s", err)
 	http.Error(w, "internal server error", http.StatusInternalServerError)
+}
+
+// writeCreatedResponse builds the resource URL from the host, routePath, and key,
+// sets the jot-password header, writes a 201 status, and writes the URL to the body.
+func writeCreatedResponse(w http.ResponseWriter, r *http.Request, cfg *config.Config, routePath, key, password string) {
+	host := extractHost(cfg, r)
+
+	u, err := url.Parse(host)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	u = u.JoinPath(routePath, key)
+
+	w.Header().Set("jot-password", password)
+	w.WriteHeader(http.StatusCreated)
+
+	if _, err := fmt.Fprintf(w, "%s\n", u.String()); err != nil {
+		log.Println(fmt.Errorf("error while writing response url: %w", err))
+	}
 }

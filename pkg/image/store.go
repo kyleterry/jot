@@ -12,26 +12,18 @@ import (
 
 	"github.com/disintegration/imageorient"
 	"github.com/google/wire"
-	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/errors"
-	"github.com/kyleterry/jot/pkg/id"
 	"github.com/kyleterry/jot/pkg/image/backend"
+	"github.com/kyleterry/jot/pkg/store"
 	"github.com/kyleterry/jot/pkg/types"
 )
 
 var ProviderSet = wire.NewSet(
-	wire.Struct(new(Options), "*"),
 	NewStore,
 )
 
-type Options struct {
-	PasswordManager *auth.PasswordManager
-	IDManager       *id.IDManager
-}
-
 type Store struct {
-	pm             *auth.PasswordManager
-	im             *id.IDManager
+	opts           *store.Options
 	storageBackend backend.Interface
 }
 
@@ -78,14 +70,9 @@ func (s *Store) Get(ctx context.Context, key string) (*types.GalleryFile, error)
 }
 
 func (s *Store) Create(ctx context.Context, images *types.Images) (*types.GalleryFile, error) {
-	key, err := s.im.Generate()
+	key, password, err := store.NewIDAndPassword(s.opts.IDManager, s.opts.PasswordManager)
 	if err != nil {
-		return nil, errors.NewUnknownError("failed to generate id").WithCause(err)
-	}
-
-	password, err := s.pm.Generate(key)
-	if err != nil {
-		return nil, errors.NewUnknownError("failed to generate password").WithCause(err)
+		return nil, err
 	}
 
 	if err := s.processImages(images); err != nil {
@@ -169,10 +156,9 @@ func (s *Store) processImages(images *types.Images) error {
 	return nil
 }
 
-func NewStore(b backend.Interface, opts *Options) *Store {
+func NewStore(b backend.Interface, opts *store.Options) *Store {
 	return &Store{
-		pm:             opts.PasswordManager,
-		im:             opts.IDManager,
+		opts:           opts,
 		storageBackend: b,
 	}
 }

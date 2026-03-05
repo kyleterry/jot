@@ -2,16 +2,15 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/kyleterry/jot/pkg/auth"
 	"github.com/kyleterry/jot/pkg/config"
-	"github.com/kyleterry/jot/pkg/errors"
 	"github.com/kyleterry/jot/pkg/image"
 	"github.com/kyleterry/jot/pkg/types"
 )
@@ -39,8 +38,6 @@ func (h *imageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *imageHandler) post(w http.ResponseWriter, r *http.Request) {
-	host := extractHost(h.cfg, r)
-
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		http.Error(w, err.Error(), http.StatusExpectationFailed)
 
@@ -78,21 +75,7 @@ func (h *imageHandler) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imageURL, err := url.Parse(host)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-
-		return
-	}
-
-	imageURL = imageURL.JoinPath("img", g.ID)
-
-	w.Header().Set("jot-password", g.Password)
-	w.WriteHeader(http.StatusCreated)
-
-	if _, err := fmt.Fprintf(w, "%s\n", imageURL.String()); err != nil {
-		log.Println(fmt.Errorf("error while writing image url: %w", err))
-	}
+	writeCreatedResponse(w, r, h.cfg, "img", g.ID, g.Password)
 }
 
 func (h *imageHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -150,57 +133,6 @@ func (h *imageHandler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// withGalleryPreloaded instructs the store to do a stat on the object before
-// loading the full content. This lets us check the If-None-Match header
-// browsers will pass in the presence of an ETag header for a resource.
-func (h imageHandler) withGalleryPreloaded(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		key, ok := ObjectKeyFromContext(ctx)
-		if !ok {
-			WriteError(errors.NewInvalidKeyError(key), w)
-
-			return
-		}
-
-		gallery, err := h.store.Stat(ctx, key)
-		if err != nil {
-			WriteError(err, w)
-
-			return
-		}
-
-		ctx = WithTaggable(r.Context(), gallery)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// withGalleryLoaded is a middleware handler that loads the image gallery using
-// a key derived from the http request URI and sets it in ctx.
-func (h imageHandler) withGalleryLoaded(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		key, ok := ObjectKeyFromContext(ctx)
-		if !ok {
-			WriteError(errors.NewInvalidKeyError(key), w)
-
-			return
-		}
-
-		gallery, err := h.store.Get(ctx, key)
-		if err != nil {
-			WriteError(err, w)
-
-			return
-		}
-
-		ctx = types.WithGalleryFile(ctx, gallery)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
 func NewImageHandler(cfg *config.Config, store image.StoreService, pm auth.PasswordManagerService) *imageHandler {
 	h := &imageHandler{
 		cfg:             cfg,
@@ -211,9 +143,13 @@ func NewImageHandler(cfg *config.Config, store image.StoreService, pm auth.Passw
 	authenticated := NewMiddleware(WithAuthenticationMiddleware(pm))
 	keyRequired := NewMiddleware(WithKeyRequiredMiddleware)
 	galleryLoaded := NewMiddleware(
-		(*h).withGalleryPreloaded,
+		withPreloaded(func(ctx context.Context, key string) (*types.GalleryFile, error) {
+			return h.store.Stat(ctx, key)
+		}),
 		WithPreconditionsMiddleware,
-		(*h).withGalleryLoaded,
+		withLoaded(func(ctx context.Context, key string) (*types.GalleryFile, error) {
+			return h.store.Get(ctx, key)
+		}, types.WithGalleryFile),
 	)
 
 	authenticated = keyRequired.ExtendWith(authenticated, galleryLoaded)

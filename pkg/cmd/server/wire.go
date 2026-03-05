@@ -12,6 +12,7 @@ import (
 	"github.com/kyleterry/jot/pkg/jot"
 	textfs "github.com/kyleterry/jot/pkg/jot/store/backends"
 	"github.com/kyleterry/jot/pkg/server"
+	"github.com/kyleterry/jot/pkg/store"
 	"github.com/kyleterry/jot/pkg/text"
 )
 
@@ -36,6 +37,7 @@ func initServer() (*server.Server, error) {
 		auth.ProviderSet,
 		wire.Bind(new(auth.PasswordManagerService), new(*auth.PasswordManager)),
 		id.ProviderSet,
+		store.ProviderSet,
 		textfs.BoundProviderSet,
 		jot.ProviderSet,
 		wire.Bind(new(text.StoreService), new(*jot.TextStore)),
